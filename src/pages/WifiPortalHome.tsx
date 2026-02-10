@@ -84,7 +84,7 @@ const WifiPortalHome: React.FC = () => {
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isVoucherMode, setIsVoucherMode] = useState(false);
   const [activeSession, setActiveSession] = useState<SessionData | null>(null);
-  const [isMockMode, setIsMockMode] = useState(false); // NEW: Track if using mock backend
+  const [isMockMode, setIsMockMode] = useState(false);
 
   const pollingIntervalRef = useRef<number | null>(null);
 
@@ -154,13 +154,6 @@ const WifiPortalHome: React.FC = () => {
       if (result.success && result.data) {
         console.log('✅ Active session found:', result.data);
         setActiveSession(result.data);
-        
-        // Show success message if there's an active session
-        setPaymentStatus({
-          status: 'success',
-          message: `You have an active session!`,
-          sessionId: result.data.sessionId
-        });
       } else {
         console.log('ℹ️ No active session found');
         setActiveSession(null);
@@ -346,6 +339,7 @@ const WifiPortalHome: React.FC = () => {
         // Refresh active session
         await checkActiveSession();
 
+        // Auto-close modal after 3 seconds
         setTimeout(() => {
           resetFlow();
         }, 3000);
@@ -366,7 +360,7 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * UPDATED: Initiate M-Pesa payment with mock support
+   * Initiate M-Pesa payment with mock support
    */
   const initiateMpesaPayment = async () => {
     if (!selectedPackage) {
@@ -469,7 +463,6 @@ const WifiPortalHome: React.FC = () => {
       if (checkoutRequestID) {
         console.log('✅ SUCCESS: CheckoutRequestID received:', checkoutRequestID);
         
-        // UPDATED: Check if mock mode by looking at the CheckoutRequestID pattern
         const isMock = checkoutRequestID.startsWith('ws_CO_');
         setIsMockMode(isMock);
         
@@ -542,7 +535,7 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * UPDATED: Poll payment status with mock-aware intervals
+   * Poll payment status with mock-aware intervals
    */
   const pollPaymentStatus = (identifier: string) => {
     if (pollingIntervalRef.current !== null) {
@@ -551,9 +544,8 @@ const WifiPortalHome: React.FC = () => {
     }
 
     let currentPollCount = 0;
-    // UPDATED: Use faster polling for mock mode, slower for production
-    const maxPolls = isMockMode ? 20 : 60; // 20 polls for mock (100 seconds total), 60 for production
-    const pollIntervalMs = isMockMode ? 3000 : 5000; // 3 seconds for mock, 5 seconds for production
+    const maxPolls = isMockMode ? 20 : 60;
+    const pollIntervalMs = isMockMode ? 3000 : 5000;
     let isProcessing = false;
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -624,6 +616,11 @@ const WifiPortalHome: React.FC = () => {
           // Refresh active session
           await checkActiveSession();
 
+          // Auto-close modal after 3 seconds
+          setTimeout(() => {
+            resetFlow();
+          }, 3000);
+
           return;
         }
 
@@ -683,10 +680,8 @@ const WifiPortalHome: React.FC = () => {
 
         let userMessage = '';
         if (isMockMode) {
-          // UPDATED: Mock-specific messages
           userMessage = `🔶 MOCK: Simulating payment... (${timeDisplay})`;
         } else {
-          // Production messages
           if (currentPollCount <= 12) {
             userMessage = `📱 Check your phone for M-Pesa prompt... (${timeDisplay})`;
           } else if (currentPollCount <= 36) {
@@ -869,7 +864,6 @@ const WifiPortalHome: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* UPDATED: Mock mode indicator */}
               {isMockMode && (
                 <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg border border-orange-200 mr-2">
                   <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
@@ -899,7 +893,6 @@ const WifiPortalHome: React.FC = () => {
                 <p className="text-gray-600 text-base">
                   {paymentStatus.message}
                 </p>
-                {/* UPDATED: Show mock indicator */}
                 {isMockMode && (
                   <p className="text-xs text-orange-600 mt-2">🔶 Using mock M-Pesa service</p>
                 )}
@@ -1029,6 +1022,8 @@ const WifiPortalHome: React.FC = () => {
                 >
                   Start Browsing
                 </button>
+                
+                <p className="text-xs text-gray-500 mt-3">Auto-closing in 3 seconds...</p>
               </div>
             )}
 
@@ -1082,35 +1077,8 @@ const WifiPortalHome: React.FC = () => {
       )}
 
       <main className="max-w-6xl mx-auto px-4 py-6">
-        {/* Show active session if exists and not in payment flow */}
-        {activeSession && paymentStatus.status === 'idle' && !selectedPackage && (
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 animate-in fade-in duration-500">
-            <div className="text-center">
-              <div className="mb-4 inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full">
-                <CheckCircle2 className="w-10 h-10 text-green-600" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">You're Connected!</h2>
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200 mb-4 max-w-md mx-auto">
-                <p className="text-gray-700 mb-2">
-                  <strong>{activeSession.packageName}</strong> package is active
-                </p>
-                <div className="space-y-1 text-sm text-gray-600">
-                  <div className="flex items-center justify-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    <span>Expires: {new Date(activeSession.expiryTime).toLocaleString()}</span>
-                  </div>
-                  {activeSession.mikrotikActive && (
-                    <div className="flex items-center justify-center gap-2 text-green-600">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Connected to Network</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {/* REMOVED: Active session notification banner */}
+        
         {/* Main Flow - Package Selection & Payment */}
         {!['success', 'waiting'].includes(paymentStatus.status) && (
           <>
