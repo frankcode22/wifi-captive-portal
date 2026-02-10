@@ -3,16 +3,21 @@ import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, Cred
 
 // API Configuration - will be auto-detected from host machine
 const getApiBaseUrl = () => {
-  // In production, this should match your backend server IP
   const host = window.location.hostname;
   const port = 3000; // Your backend port
   
-  // If on localhost, use localhost, otherwise use the host IP
+  // Check if running locally
   if (host === 'localhost' || host === '127.0.0.1') {
     return `http://localhost:${port}/api`;
   }
   
-  return `http://${host}:${port}/api`;
+  // Check if it's the dev subdomain
+  if (host.includes('dev.') || host.includes('development.')) {
+    return 'https://backend.ashvillecomsolutions.co.ke/api'; // or use a dev backend if you have one
+  }
+  
+  // Production on cPanel
+  return 'https://backend.ashvillecomsolutions.co.ke/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
