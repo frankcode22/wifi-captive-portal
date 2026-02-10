@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Connect | High Speed Internet</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --glass: rgba(255, 255, 255, 0.9);
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #1e293b;
+        }
+        .container {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .header h2 { margin-bottom: 0.5rem; color: #1e3a8a; }
+        .device-info {
+            font-size: 0.8rem;
+            background: #e2e8f0;
+            padding: 5px 10px;
+            border-radius: 50px;
+            display: inline-block;
+            margin-bottom: 1.5rem;
+        }
+        .package-grid {
+            display: grid;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .package-card {
+            border: 2px solid #e2e8f0;
+            padding: 1rem;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        .package-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+        .package-card.selected {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+        .package-card h3 { margin: 0; font-size: 1.1rem; }
+        .package-card .price { font-weight: bold; color: var(--primary); font-size: 1.2rem; }
+        
+        .btn-connect {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2>Surf WiFi</h2>
+        <div class="device-info">Device: <strong>$(mac)</strong></div>
+    </div>
+
+    <p>Select a package to get started:</p>
+
+    <div class="package-grid">
+        <div class="package-card" onclick="selectPkg(this, 'pkg1')">
+            <h3>1 Hour</h3>
+            <div class="price">KSh 10</div>
+        </div>
+        <div class="package-card" onclick="selectPkg(this, 'pkg2')">
+            <h3>4 Hours</h3>
+            <div class="price">KSh 30</div>
+        </div>
+        <div class="package-card" onclick="selectPkg(this, 'pkg3')">
+            <h3>24 Hours</h3>
+            <div class="price">KSh 50</div>
+        </div>
+    </div>
+
+    <form name="sendin" action="$(link-login-only)" method="post">
+        <input type="hidden" name="username" value="$(mac)">
+        <input type="hidden" name="password" value="">
+        <input type="hidden" name="dst" value="$(link-orig)">
+        <input type="hidden" name="popup" value="true">
+        
+        <button type="submit" class="btn-connect">Connect Now</button>
+    </form>
+    
+    <p style="font-size: 0.7rem; color: #64748b; margin-top: 1rem;">Powered by MikroTik RouterOS</p>
+</div>
+
+<script>
+    function selectPkg(element, pkgId) {
+        // Remove selection from others
+        document.querySelectorAll('.package-card').forEach(el => el.classList.remove('selected'));
+        // Add to current
+        element.classList.add('selected');
+        // Logic: For a "One-Click" MAC login, we usually don't need a password
+        console.log("Selected package: " + pkgId);
+    }
+</script>
+
+</body>
+</html>
