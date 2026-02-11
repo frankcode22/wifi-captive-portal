@@ -2,6 +2,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Home from './pages/WifiPortalHome';
 import { Toaster } from 'react-hot-toast';
+import './App.css';
 
 function AppContent() {
   return (

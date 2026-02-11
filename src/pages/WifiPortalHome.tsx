@@ -1,10 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo, lazy, Suspense } from 'react';
 import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, CreditCard, ArrowRight, X, Laptop, Shield, Ticket } from 'lucide-react';
 
 // API Configuration - will be auto-detected from host machine
+// const getApiBaseUrl = () => {
+//   // In production, this should match your backend server IP
+//   const host = window.location.hostname;
+//   const port = 3000; // Your backend port
+  
+//   // If on localhost, use localhost, otherwise use the host IP
+//   if (host === 'localhost' || host === '127.0.0.1') {
+//     return `http://localhost:${port}/api`;
+//   }
+  
+//   return `http://${host}:${port}/api`;
+// };
+
+
 const getApiBaseUrl = () => {
   const host = window.location.hostname;
-  const port = 3000; // Your backend port
+  const port = 3000;
   
   // Check if running locally
   if (host === 'localhost' || host === '127.0.0.1') {
@@ -67,9 +81,86 @@ interface SessionData {
   mikrotikActive?: boolean;
 }
 
+
+// Package Card Component - Memoized for performance
+const PackageCard = memo(({ 
+  pkg, 
+  onSelect, 
+  getIcon 
+}: { 
+  pkg: Package; 
+  onSelect: (pkg: Package) => void;
+  getIcon: (iconName: string) => React.ReactElement;  // ✅ Changed from JSX.Element
+}) => (
+  <div
+    onClick={() => onSelect(pkg)}
+    className="relative bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer group hover:-translate-y-1 border-2 border-transparent hover:border-blue-500"
+  >
+    {pkg.isFeatured && (
+      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+        <span className="px-3 py-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-full shadow-md">
+          POPULAR
+        </span>
+      </div>
+    )}
+
+    <div className="p-4">
+      <div 
+        className="w-12 h-12 rounded-xl flex items-center justify-center mb-3 mx-auto"
+        style={{ backgroundColor: pkg.color + '20', color: pkg.color }}
+      >
+        {getIcon(pkg.icon)}
+      </div>
+
+      <h3 className="text-lg font-bold text-gray-900 text-center mb-1">
+        {pkg.displayName || pkg.name}
+      </h3>
+
+      <div className="text-center mb-4">
+        <span className="text-3xl font-bold text-gray-900">
+          {pkg.price}
+        </span>
+        <span className="text-base text-gray-600 ml-1">{pkg.currency || 'KES'}</span>
+      </div>
+
+      <div className="space-y-2 mb-4">
+        {pkg.features.slice(0, 3).map((feature, idx) => (
+          <div key={idx} className="flex items-center gap-2 text-xs text-gray-600">
+            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+            <span>{feature}</span>
+          </div>
+        ))}
+      </div>
+
+      <button className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-semibold text-sm hover:from-blue-700 hover:to-indigo-700 transition-all duration-300 flex items-center justify-center gap-2 group-hover:gap-3">
+        Select
+        <ArrowRight className="w-4 h-4" />
+      </button>
+    </div>
+  </div>
+));
+
+PackageCard.displayName = 'PackageCard';
+
+
 const WifiPortalHome: React.FC = () => {
-  // State Management
-  const [packages, setPackages] = useState<Package[]>([]);
+  // State Management - Optimized initialization
+  const [packages, setPackages] = useState<Package[]>(() => {
+    // Try to get cached packages from sessionStorage
+    try {
+      const cached = sessionStorage.getItem('wifi_packages');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.timestamp && Date.now() - parsed.timestamp < 300000) { // 5 minutes cache
+          return parsed.data;
+        }
+      }
+    } catch (e) {
+      // Ignore cache errors
+    }
+    return [];
+  });
+  
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [voucherCode, setVoucherCode] = useState('');
@@ -79,27 +170,41 @@ const WifiPortalHome: React.FC = () => {
   });
   const [errors, setErrors] = useState<{ phone?: string; mac?: string; voucher?: string }>({});
   const [macAddress, setMacAddress] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(packages.length === 0);
   const [pollCount, setPollCount] = useState(0);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isVoucherMode, setIsVoucherMode] = useState(false);
   const [activeSession, setActiveSession] = useState<SessionData | null>(null);
-  const [isMockMode, setIsMockMode] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(5);
 
   const pollingIntervalRef = useRef<number | null>(null);
+  const redirectTimerRef = useRef<number | null>(null);
+  const fetchControllerRef = useRef<AbortController | null>(null);
 
-  // Fetch packages and check for active session on mount
+  // Fetch packages and check for active session on mount - OPTIMIZED
   useEffect(() => {
-    getMacAddress();
-    fetchPackages();
+    const mac = getMacAddressSync();
+    setMacAddress(mac);
+    
+    // Start both requests in parallel immediately
+    Promise.all([
+      fetchPackages(),
+      checkActiveSession(mac)
+    ]).catch(console.error);
   }, []);
 
-  // Check for active session when MAC address is available
+  // Preload critical resources
   useEffect(() => {
-    if (macAddress) {
-      checkActiveSession();
-    }
-  }, [macAddress]);
+    // Preconnect to API
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = API_BASE_URL;
+    document.head.appendChild(link);
+    
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, []);
 
   // Timer for elapsed time display
   useEffect(() => {
@@ -114,68 +219,135 @@ const WifiPortalHome: React.FC = () => {
     return () => clearInterval(timer);
   }, [paymentStatus.status]);
 
+  // Countdown timer for redirect
+  useEffect(() => {
+    if (paymentStatus.status === 'success') {
+      setRedirectCountdown(5);
+      
+      redirectTimerRef.current = setInterval(() => {
+        setRedirectCountdown(prev => {
+          if (prev <= 1) {
+            // Redirect to YouTube
+            window.location.href = 'https://www.youtube.com';
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000) as any;
+    }
+
+    return () => {
+      if (redirectTimerRef.current) {
+        clearInterval(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+    };
+  }, [paymentStatus.status]);
+
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+      if (redirectTimerRef.current) {
+        clearInterval(redirectTimerRef.current);
+      }
     };
   }, []);
 
   /**
-   * Get MAC address from URL parameters
+   * Get MAC address from URL parameters - SYNCHRONOUS
    */
-  const getMacAddress = () => {
+  const getMacAddressSync = (): string => {
     const urlParams = new URLSearchParams(window.location.search);
     const mac = urlParams.get('mac') || urlParams.get('id') || '84:D7:37:D1:TY:64';
     
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('🔍 MAC ADDRESS DETECTION');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('URL:', window.location.href);
-    console.log('Detected MAC:', mac);
-    console.log('API Base URL:', API_BASE_URL);
-    console.log('═══════════════════════════════════════════════════════');
-    
-    setMacAddress(mac);
+    console.log('🔍 MAC:', mac);
+    return mac;
   };
 
   /**
-   * Check for active session
+   * Check for active session - OPTIMIZED
    */
-  const checkActiveSession = async () => {
+  const checkActiveSession = async (mac?: string) => {
+    const macToUse = mac || macAddress;
+    if (!macToUse) return;
+
+    // Check cache first
     try {
-      console.log('🔍 Checking for active session:', macAddress);
-      
-      const response = await fetch(`${API_BASE_URL}/sessions/active/${macAddress}`);
+      const cached = sessionStorage.getItem(`session_${macToUse}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.timestamp && Date.now() - parsed.timestamp < 30000) { // 30 seconds cache
+          setActiveSession(parsed.data);
+          return;
+        }
+      }
+    } catch (e) {
+      // Ignore cache errors
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+      const response = await fetch(`${API_BASE_URL}/sessions/active/${macToUse}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
       const result: ApiResponse<SessionData> = await response.json();
 
       if (result.success && result.data) {
-        console.log('✅ Active session found:', result.data);
         setActiveSession(result.data);
+        // Cache the result
+        sessionStorage.setItem(`session_${macToUse}`, JSON.stringify({
+          data: result.data,
+          timestamp: Date.now()
+        }));
       } else {
-        console.log('ℹ️ No active session found');
         setActiveSession(null);
       }
-    } catch (error) {
-      console.error('❌ Error checking active session:', error);
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        console.error('❌ Error checking active session:', error);
+      }
       setActiveSession(null);
     }
   };
 
   /**
-   * Fetch available packages from API
+   * Fetch available packages from API - OPTIMIZED
    */
   const fetchPackages = async () => {
+    // Return immediately if we have cached packages
+    if (packages.length > 0) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      console.log('📦 Fetching packages from:', `${API_BASE_URL}/packages`);
-      
-      const response = await fetch(`${API_BASE_URL}/packages`);
-      const result: ApiResponse<Package[]> = await response.json();
 
-      console.log('📦 Packages response:', result);
+      // Abort previous fetch if still running
+      if (fetchControllerRef.current) {
+        fetchControllerRef.current.abort();
+      }
+
+      fetchControllerRef.current = new AbortController();
+      const timeoutId = setTimeout(() => fetchControllerRef.current?.abort(), 5000); // 5 second timeout
+      
+      const response = await fetch(`${API_BASE_URL}/packages`, {
+        signal: fetchControllerRef.current.signal,
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+
+      clearTimeout(timeoutId);
+
+      const result: ApiResponse<Package[]> = await response.json();
 
       if (result.success && result.data) {
         const mappedPackages = result.data.map(pkg => ({
@@ -190,15 +362,25 @@ const WifiPortalHome: React.FC = () => {
           displayName: pkg.displayName || pkg.name
         }));
         
-        console.log('✅ Mapped packages:', mappedPackages);
         setPackages(mappedPackages);
+
+        // Cache packages
+        try {
+          sessionStorage.setItem('wifi_packages', JSON.stringify({
+            data: mappedPackages,
+            timestamp: Date.now()
+          }));
+        } catch (e) {
+          // Ignore cache errors
+        }
       } else {
-        console.error('❌ Failed to fetch packages:', result.error);
         setFallbackPackages();
       }
-    } catch (error) {
-      console.error('❌ Error fetching packages:', error);
-      setFallbackPackages();
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        console.error('❌ Error fetching packages:', error);
+        setFallbackPackages();
+      }
     } finally {
       setLoading(false);
     }
@@ -287,13 +469,13 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * Handle package selection
+   * Handle package selection - OPTIMIZED
    */
-  const handlePackageSelect = (pkg: Package) => {
+  const handlePackageSelect = useCallback((pkg: Package) => {
     setSelectedPackage(pkg);
     setPaymentStatus({ status: 'idle', message: '' });
     setIsVoucherMode(false);
-  };
+  }, []);
 
   /**
    * Handle voucher redemption
@@ -338,11 +520,6 @@ const WifiPortalHome: React.FC = () => {
 
         // Refresh active session
         await checkActiveSession();
-
-        // Auto-close modal after 3 seconds
-        setTimeout(() => {
-          resetFlow();
-        }, 3000);
       } else {
         throw new Error(responseData.error || 'Invalid or expired voucher');
       }
@@ -360,7 +537,7 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * Initiate M-Pesa payment with mock support
+   * Initiate M-Pesa payment
    */
   const initiateMpesaPayment = async () => {
     if (!selectedPackage) {
@@ -445,16 +622,9 @@ const WifiPortalHome: React.FC = () => {
         responseData?.sessionId ||
         null;
 
-      const isSuccess = 
-        response.status === 200 || 
-        response.status === 201 ||
-        responseData?.success === true ||
-        !!checkoutRequestID;
-
       console.log('Parsed values:', {
         checkoutRequestID,
         sessionId,
-        isSuccess,
         responseSuccess: responseData?.success,
         httpStatus: response.status
       });
@@ -462,21 +632,9 @@ const WifiPortalHome: React.FC = () => {
       // SUCCESS PATH
       if (checkoutRequestID) {
         console.log('✅ SUCCESS: CheckoutRequestID received:', checkoutRequestID);
-        
-        const isMock = checkoutRequestID.startsWith('ws_CO_');
-        setIsMockMode(isMock);
-        
-        if (isMock) {
-          console.log('🔶 MOCK MODE DETECTED - Using faster polling');
-        } else {
-          console.log('🔄 PRODUCTION MODE - Using standard polling');
-        }
-        
         console.log('🔄 Starting payment status polling...');
 
-        const customerMessage = isMock
-          ? "🔶 MOCK: Payment request sent. Checking status automatically..."
-          : responseData?.data?.customerMessage ||
+        const customerMessage = responseData?.data?.customerMessage ||
             responseData?.customerMessage ||
             responseData?.message ||
             "📱 Check your phone for the M-Pesa prompt and enter your PIN";
@@ -535,7 +693,7 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * Poll payment status with mock-aware intervals
+   * Poll payment status
    */
   const pollPaymentStatus = (identifier: string) => {
     if (pollingIntervalRef.current !== null) {
@@ -544,13 +702,12 @@ const WifiPortalHome: React.FC = () => {
     }
 
     let currentPollCount = 0;
-    const maxPolls = isMockMode ? 20 : 60;
-    const pollIntervalMs = isMockMode ? 3000 : 5000;
+    const maxPolls = 60;
+    const pollIntervalMs = 5000;
     let isProcessing = false;
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🔄 STARTING PAYMENT STATUS POLLING');
-    console.log('Mode:', isMockMode ? 'MOCK' : 'PRODUCTION');
     console.log('Identifier:', identifier);
     console.log('Poll Interval:', pollIntervalMs + 'ms');
     console.log('Max Polls:', maxPolls);
@@ -565,8 +722,7 @@ const WifiPortalHome: React.FC = () => {
         return;
       }
 
-      const prefix = isMockMode ? '🔶 MOCK' : '🔄';
-      console.log(`${prefix} Poll #${currentPollCount}/${maxPolls} - Checking payment status...`);
+      console.log(`🔄 Poll #${currentPollCount}/${maxPolls} - Checking payment status...`);
 
       try {
         const statusResult = await queryPaymentStatus(identifier);
@@ -588,7 +744,7 @@ const WifiPortalHome: React.FC = () => {
 
         const desc = mpesaStatus?.ResultDesc || "Waiting for payment...";
 
-        console.log(`${prefix} Poll #${currentPollCount} result:`, {
+        console.log(`🔄 Poll #${currentPollCount} result:`, {
           resultCode: code,
           resultDesc: desc,
           localStatus,
@@ -615,11 +771,6 @@ const WifiPortalHome: React.FC = () => {
 
           // Refresh active session
           await checkActiveSession();
-
-          // Auto-close modal after 3 seconds
-          setTimeout(() => {
-            resetFlow();
-          }, 3000);
 
           return;
         }
@@ -679,18 +830,14 @@ const WifiPortalHome: React.FC = () => {
           : `${secondsElapsed}s`;
 
         let userMessage = '';
-        if (isMockMode) {
-          userMessage = `🔶 MOCK: Simulating payment... (${timeDisplay})`;
+        if (currentPollCount <= 12) {
+          userMessage = `📱 Check your phone for M-Pesa prompt... (${timeDisplay})`;
+        } else if (currentPollCount <= 36) {
+          userMessage = `⏳ Waiting for you to enter your M-Pesa PIN... (${timeDisplay})`;
+        } else if (currentPollCount <= 72) {
+          userMessage = `⏳ Still waiting for payment confirmation... (${timeDisplay})`;
         } else {
-          if (currentPollCount <= 12) {
-            userMessage = `📱 Check your phone for M-Pesa prompt... (${timeDisplay})`;
-          } else if (currentPollCount <= 36) {
-            userMessage = `⏳ Waiting for you to enter your M-Pesa PIN... (${timeDisplay})`;
-          } else if (currentPollCount <= 72) {
-            userMessage = `⏳ Still waiting for payment confirmation... (${timeDisplay})`;
-          } else {
-            userMessage = `⏳ Taking longer than usual, but we're still waiting... (${timeDisplay})`;
-          }
+          userMessage = `⏳ Taking longer than usual, but we're still waiting... (${timeDisplay})`;
         }
 
         setPaymentStatus(prev => ({
@@ -709,13 +856,9 @@ const WifiPortalHome: React.FC = () => {
 
           console.log('⏱️ Polling timeout reached');
           
-          const timeoutMessage = isMockMode
-            ? `⏱️ Mock simulation timeout. The payment might still be processing in the background.`
-            : `⏱️ Payment check timed out. Please check your M-Pesa messages.`;
-          
           setPaymentStatus({
             status: 'timeout',
-            message: timeoutMessage,
+            message: `⏱️ Payment check timed out. Please check your M-Pesa messages.`,
           });
         }
       } catch (error) {
@@ -756,8 +899,7 @@ const WifiPortalHome: React.FC = () => {
     message?: string;
   }> => {
     try {
-      const prefix = isMockMode ? '🔶 MOCK' : '🔍';
-      console.log(`${prefix} Querying payment status: ${identifier}`);
+      console.log(`🔍 Querying payment status: ${identifier}`);
       
       const response = await fetch(`${API_BASE_URL}/payment/status/${identifier}`);
       const responseData = await response.json();
@@ -792,6 +934,10 @@ const WifiPortalHome: React.FC = () => {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
+    if (redirectTimerRef.current) {
+      clearInterval(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
     setSelectedPackage(null);
     setPhoneNumber('');
     setVoucherCode('');
@@ -800,50 +946,74 @@ const WifiPortalHome: React.FC = () => {
     setPollCount(0);
     setTimeElapsed(0);
     setIsVoucherMode(false);
-    setIsMockMode(false);
+    setRedirectCountdown(5);
   };
 
   /**
-   * Get icon component
+   * Get icon component - MEMOIZED
    */
-  const getIcon = (iconName: string) => {
+  const getIcon = useCallback((iconName: string) => {
     switch (iconName) {
       case 'zap': return <Zap className="w-6 h-6" />;
       case 'clock': return <Clock className="w-6 h-6" />;
       case 'star': return <Star className="w-6 h-6" />;
       default: return <Wifi className="w-6 h-6" />;
     }
-  };
+  }, []);
 
   /**
-   * Format duration
+   * Format duration - MEMOIZED
    */
-  const formatDuration = (seconds: number): string => {
+  const formatDuration = useCallback((seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     if (hours >= 24) {
       return `${hours / 24} Day${hours / 24 > 1 ? 's' : ''}`;
     }
     return `${hours} Hour${hours > 1 ? 's' : ''}`;
-  };
+  }, []);
 
   /**
-   * Format elapsed time
+   * Format elapsed time - MEMOIZED
    */
-  const formatElapsedTime = (seconds: number): string => {
+  const formatElapsedTime = useCallback((seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  }, []);
 
-  // Loading state
+  // Optimized loading state with skeleton
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading packages...</p>
-          <p className="text-xs text-gray-500 mt-2">API: {API_BASE_URL}</p>
-        </div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+        <header className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-6xl mx-auto px-4 py-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-2.5 rounded-xl shadow-lg">
+                <Wifi className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">Ashvillecom WIFI</h1>
+                <p className="text-xs text-gray-600">Loading packages...</p>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-6xl mx-auto px-4 py-6">
+          <div className="grid md:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white rounded-xl shadow-md p-4 animate-pulse">
+                <div className="w-12 h-12 bg-gray-200 rounded-xl mx-auto mb-3"></div>
+                <div className="h-6 bg-gray-200 rounded mb-2"></div>
+                <div className="h-8 bg-gray-200 rounded mb-4"></div>
+                <div className="space-y-2 mb-4">
+                  <div className="h-4 bg-gray-200 rounded"></div>
+                  <div className="h-4 bg-gray-200 rounded"></div>
+                </div>
+                <div className="h-10 bg-gray-200 rounded"></div>
+              </div>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }
@@ -859,17 +1029,11 @@ const WifiPortalHome: React.FC = () => {
                 <Wifi className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">WiFi Access Portal</h1>
+                <h1 className="text-xl font-bold text-gray-900">Ashvillecom WIFI</h1>
                 <p className="text-xs text-gray-600">Get instant internet access</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {isMockMode && (
-                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg border border-orange-200 mr-2">
-                  <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs font-medium text-orange-700">Mock Mode</span>
-                </div>
-              )}
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-200">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                 <span className="text-xs font-medium text-green-700">Network Available</span>
@@ -893,9 +1057,6 @@ const WifiPortalHome: React.FC = () => {
                 <p className="text-gray-600 text-base">
                   {paymentStatus.message}
                 </p>
-                {isMockMode && (
-                  <p className="text-xs text-orange-600 mt-2">🔶 Using mock M-Pesa service</p>
-                )}
               </div>
             )}
 
@@ -907,33 +1068,19 @@ const WifiPortalHome: React.FC = () => {
                   <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full animate-ping"></div>
                 </div>
                 <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                  {isMockMode ? 'Processing Mock Payment' : 'Check Your Phone'}
+                  Check Your Phone
                 </h2>
                 <p className="text-gray-600 text-base mb-6">
-                  {isMockMode ? (
-                    <>Mock M-Pesa simulation in progress</>
-                  ) : (
-                    <>
-                      We've sent an M-Pesa prompt to<br />
-                      <strong className="text-gray-900">{phoneNumber}</strong>
-                    </>
-                  )}
+                  We've sent an M-Pesa prompt to<br />
+                  <strong className="text-gray-900">{phoneNumber}</strong>
                 </p>
 
                 {/* Transaction Progress */}
-                <div className={`rounded-xl p-4 border-2 mb-6 ${
-                  isMockMode 
-                    ? 'bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200'
-                    : 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
-                }`}>
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full animate-pulse ${
-                        isMockMode ? 'bg-orange-500' : 'bg-green-500'
-                      }`}></div>
-                      <span className="text-sm font-medium text-gray-700">
-                        {isMockMode ? 'Mock Transaction' : 'Transaction in Progress'}
-                      </span>
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium text-gray-700">Transaction in Progress</span>
                     </div>
                     <span className="text-lg font-bold text-gray-900">{formatElapsedTime(timeElapsed)}</span>
                   </div>
@@ -945,18 +1092,12 @@ const WifiPortalHome: React.FC = () => {
                       <span className="text-gray-700">Payment request sent</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
-                      <Loader2 className={`w-4 h-4 animate-spin ${
-                        isMockMode ? 'text-orange-600' : 'text-blue-600'
-                      }`} />
-                      <span className="text-gray-700">
-                        {isMockMode ? 'Simulating payment...' : 'Waiting for PIN entry'}
-                      </span>
+                      <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                      <span className="text-gray-700">Waiting for PIN entry</span>
                     </div>
                   </div>
 
-                  <div className={`mt-3 pt-3 border-t ${
-                    isMockMode ? 'border-orange-200' : 'border-green-200'
-                  }`}>
+                  <div className="mt-3 pt-3 border-t border-green-200">
                     <p className="text-xs text-gray-600">
                       Poll #{pollCount} • {paymentStatus.message}
                     </p>
@@ -964,12 +1105,10 @@ const WifiPortalHome: React.FC = () => {
                 </div>
 
                 {/* Instructions */}
-                {!isMockMode && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                    <p className="text-sm text-blue-900 font-medium mb-1">📱 Enter your M-Pesa PIN</p>
-                    <p className="text-xs text-blue-700">Complete the payment on your phone to continue</p>
-                  </div>
-                )}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-blue-900 font-medium mb-1">📱 Enter your M-Pesa PIN</p>
+                  <p className="text-xs text-blue-700">Complete the payment on your phone to continue</p>
+                </div>
 
                 <button
                   onClick={resetFlow}
@@ -1016,14 +1155,34 @@ const WifiPortalHome: React.FC = () => {
                   </div>
                 )}
 
+                {/* Redirect Notification */}
+                <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Wifi className="w-5 h-5 text-blue-600 animate-pulse" />
+                    <p className="text-sm font-bold text-blue-900">Testing Internet Connection</p>
+                  </div>
+                  <p className="text-xs text-blue-700 mb-3">
+                    Redirecting to YouTube to verify your WiFi connection...
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                    <span className="text-2xl font-bold text-blue-900">{redirectCountdown}</span>
+                  </div>
+                </div>
+
                 <button
-                  onClick={resetFlow}
-                  className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold hover:from-green-700 hover:to-emerald-700 transition-all duration-300 shadow-lg"
+                  onClick={() => window.location.href = 'https://www.youtube.com'}
+                  className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold hover:from-green-700 hover:to-emerald-700 transition-all duration-300 shadow-lg mb-2"
                 >
-                  Start Browsing
+                  Go to YouTube Now
                 </button>
                 
-                <p className="text-xs text-gray-500 mt-3">Auto-closing in 3 seconds...</p>
+                <button
+                  onClick={resetFlow}
+                  className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Stay on this page
+                </button>
               </div>
             )}
 
@@ -1077,9 +1236,6 @@ const WifiPortalHome: React.FC = () => {
       )}
 
       <main className="max-w-6xl mx-auto px-4 py-6">
-        {/* REMOVED: Active session notification banner */}
-        
-        {/* Main Flow - Package Selection & Payment */}
         {!['success', 'waiting'].includes(paymentStatus.status) && (
           <>
             {/* Voucher Option Toggle */}
@@ -1181,53 +1337,12 @@ const WifiPortalHome: React.FC = () => {
                 ) : (
                   <div className="grid md:grid-cols-3 gap-4">
                     {packages.map((pkg) => (
-                      <div
+                      <PackageCard 
                         key={pkg.packageId}
-                        onClick={() => handlePackageSelect(pkg)}
-                        className="relative bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer group hover:-translate-y-1 border-2 border-transparent hover:border-blue-500"
-                      >
-                        {pkg.isFeatured && (
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                            <span className="px-3 py-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-full shadow-md">
-                              POPULAR
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="p-4">
-                          <div 
-                            className="w-12 h-12 rounded-xl flex items-center justify-center mb-3 mx-auto"
-                            style={{ backgroundColor: pkg.color + '20', color: pkg.color }}
-                          >
-                            {getIcon(pkg.icon)}
-                          </div>
-
-                          <h3 className="text-lg font-bold text-gray-900 text-center mb-1">
-                            {pkg.displayName || pkg.name}
-                          </h3>
-
-                          <div className="text-center mb-4">
-                            <span className="text-3xl font-bold text-gray-900">
-                              {pkg.price}
-                            </span>
-                            <span className="text-base text-gray-600 ml-1">{pkg.currency || 'KES'}</span>
-                          </div>
-
-                          <div className="space-y-2 mb-4">
-                            {pkg.features.slice(0, 3).map((feature, idx) => (
-                              <div key={idx} className="flex items-center gap-2 text-xs text-gray-600">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                                <span>{feature}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          <button className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-semibold text-sm hover:from-blue-700 hover:to-indigo-700 transition-all duration-300 flex items-center justify-center gap-2 group-hover:gap-3">
-                            Select
-                            <ArrowRight className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
+                        pkg={pkg}
+                        onSelect={handlePackageSelect}
+                        getIcon={getIcon}
+                      />
                     ))}
                   </div>
                 )}
