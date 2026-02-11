@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, memo, lazy, Suspense } from 'react';
 import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, CreditCard, ArrowRight, X, Laptop, Shield, Ticket } from 'lucide-react';
 
-// API Configuration - will be auto-detected from host machine
+
 // const getApiBaseUrl = () => {
 //   // In production, this should match your backend server IP
 //   const host = window.location.hostname;
