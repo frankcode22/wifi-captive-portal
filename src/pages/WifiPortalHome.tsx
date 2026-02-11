@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, memo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, CreditCard, ArrowRight, X, Laptop, Shield, Ticket } from 'lucide-react';
 
 
