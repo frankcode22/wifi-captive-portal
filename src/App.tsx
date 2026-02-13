@@ -10,6 +10,7 @@ function AppContent() {
       <main className="flex-grow">
         <Routes>
           <Route path="/" element={<Home />} />
+           <Route path="/login" element={<Home />} />
         </Routes>
       </main>
     </div>

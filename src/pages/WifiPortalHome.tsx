@@ -2,36 +2,17 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, CreditCard, ArrowRight, X, Laptop, Shield, Ticket } from 'lucide-react';
 
 
-// const getApiBaseUrl = () => {
-//   // In production, this should match your backend server IP
-//   const host = window.location.hostname;
-//   const port = 3000; // Your backend port
-  
-//   // If on localhost, use localhost, otherwise use the host IP
-//   if (host === 'localhost' || host === '127.0.0.1') {
-//     return `http://localhost:${port}/api`;
-//   }
-  
-//   return `http://${host}:${port}/api`;
-// };
-
-
 const getApiBaseUrl = () => {
+  // In production, this should match your backend server IP
   const host = window.location.hostname;
-  const port = 3000;
+  const port = 3000; // Your backend port
   
-  // Check if running locally
+  // If on localhost, use localhost, otherwise use the host IP
   if (host === 'localhost' || host === '127.0.0.1') {
     return `http://localhost:${port}/api`;
   }
   
-  // Check if it's the dev subdomain
-  if (host.includes('dev.') || host.includes('development.')) {
-    return 'https://backend.ashvillecomsolutions.co.ke/api'; // or use a dev backend if you have one
-  }
-  
-  // Production on cPanel
-  return 'https://backend.ashvillecomsolutions.co.ke/api';
+  return `http://${host}:${port}/api`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -90,7 +71,7 @@ const PackageCard = memo(({
 }: { 
   pkg: Package; 
   onSelect: (pkg: Package) => void;
-  getIcon: (iconName: string) => React.ReactElement;  // ✅ Changed from JSX.Element
+  getIcon: (iconName: string) => React.ReactElement;
 }) => (
   <div
     onClick={() => onSelect(pkg)}
@@ -261,7 +242,7 @@ const WifiPortalHome: React.FC = () => {
    */
   const getMacAddressSync = (): string => {
     const urlParams = new URLSearchParams(window.location.search);
-    const mac = urlParams.get('mac') || urlParams.get('id') || '84:D7:37:D1:TY:64';
+    const mac = urlParams.get('mac') || urlParams.get('id') || '';
     
     console.log('🔍 MAC:', mac);
     return mac;

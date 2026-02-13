@@ -1,29 +1,56 @@
-// Service Worker for WiFi Portal - Optimized for Vite
-const CACHE_NAME = 'wifi-portal-v1';
-const RUNTIME_CACHE = 'wifi-portal-runtime-v1';
+// Service Worker for WiFi Portal - Optimized for Vite + MikroTik Hotspot
+const CACHE_NAME = 'wifi-portal-v2';
+const RUNTIME_CACHE = 'wifi-portal-runtime-v2';
 
-// Assets to cache on install - MUST be actual built files, not source files
+// Assets to cache on install
 const STATIC_ASSETS = [
   '/',
   '/index.html'
-  // Don't cache .tsx files - they don't exist in production!
-  // Vite bundles them into /assets/*.js files
 ];
 
-// Cache strategies
-const CACHE_STRATEGIES = {
-  // Cache first, fallback to network (for static assets)
-  CACHE_FIRST: 'cache-first',
-  // Network first, fallback to cache (for API calls)
-  NETWORK_FIRST: 'network-first',
-  // Network only (for critical API calls)
-  NETWORK_ONLY: 'network-only'
-};
+// ============================================================
+// HOTSPOT DETECTION HELPERS
+// ============================================================
 
-// Install event - cache critical static assets
+/**
+ * Returns true if this URL is a MikroTik hotspot redirect or login URL.
+ * MikroTik appends ?dst=<original_url> when redirecting unauthenticated users.
+ */
+function isHotspotURL(url) {
+  return (
+    url.pathname === '/login' ||
+    url.pathname === '/logout' ||
+    url.pathname === '/status' ||
+    url.searchParams.has('dst') ||
+    url.searchParams.has('link-login') ||
+    url.searchParams.has('link-orig') ||
+    url.hostname.includes('hotspot')
+  );
+}
+
+/**
+ * Returns true if this is a captive portal probe request from the OS.
+ * Windows uses msftconnecttest.com, Apple uses captive.apple.com, etc.
+ */
+function isCaptiveProbe(url) {
+  const probeHosts = [
+    'msftconnecttest.com',
+    'msftncsi.com',
+    'captive.apple.com',
+    'connectivitycheck.gstatic.com',
+    'connectivitycheck.android.com',
+    'clients3.google.com',
+    'detectportal.firefox.com'
+  ];
+  return probeHosts.some(host => url.hostname.includes(host));
+}
+
+// ============================================================
+// INSTALL - Cache static assets
+// ============================================================
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker...');
-  
+
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -40,19 +67,18 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate event - clean up old caches
+// ============================================================
+// ACTIVATE - Clean up old caches
+// ============================================================
 self.addEventListener('activate', (event) => {
   console.log('[SW] Activating service worker...');
-  
+
   event.waitUntil(
     caches.keys()
       .then((cacheNames) => {
         return Promise.all(
           cacheNames
-            .filter((name) => {
-              // Delete old caches
-              return name !== CACHE_NAME && name !== RUNTIME_CACHE;
-            })
+            .filter((name) => name !== CACHE_NAME && name !== RUNTIME_CACHE)
             .map((name) => {
               console.log('[SW] Deleting old cache:', name);
               return caches.delete(name);
@@ -66,33 +92,63 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - intelligent caching
+// ============================================================
+// FETCH - Intelligent caching with hotspot awareness
+// ============================================================
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
+  // Skip non-GET requests - let them pass through normally
   if (request.method !== 'GET') {
     return;
   }
 
-  // Skip chrome extensions and other protocols
+  // Skip non-http protocols (chrome-extension://, etc.)
   if (!url.protocol.startsWith('http')) {
     return;
   }
 
-  // Strategy 1: Network-only for API calls (always fresh data)
+  // ── CRITICAL: Never intercept hotspot login/redirect URLs ──
+  // MikroTik redirects to /login?dst=... — must always hit network
+  if (isHotspotURL(url)) {
+    console.log('[SW] Hotspot URL detected, bypassing cache:', url.pathname);
+    event.respondWith(
+      fetch(request)
+        .catch((error) => {
+          console.error('[SW] Hotspot fetch failed:', error);
+          // Return a minimal valid Response so the SW doesn't crash
+          return new Response(
+            '<html><body><p>Connecting to portal, please wait...</p><script>setTimeout(()=>location.reload(),2000)</script></body></html>',
+            {
+              status: 200,
+              headers: { 'Content-Type': 'text/html' }
+            }
+          );
+        })
+    );
+    return;
+  }
+
+  // ── CRITICAL: Never intercept captive portal OS probes ──
+  if (isCaptiveProbe(url)) {
+    console.log('[SW] Captive probe detected, bypassing cache:', url.hostname);
+    event.respondWith(fetch(request).catch(() => new Response('', { status: 503 })));
+    return;
+  }
+
+  // ── Strategy 1: Network-only for API calls ──
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
         .catch((error) => {
           console.error('[SW] API fetch failed:', error);
           return new Response(
-            JSON.stringify({ 
-              success: false, 
-              error: 'Network error. Please check your connection.' 
+            JSON.stringify({
+              success: false,
+              error: 'Network error. Please check your connection.'
             }),
-            { 
+            {
               status: 503,
               headers: { 'Content-Type': 'application/json' }
             }
@@ -102,7 +158,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Strategy 2: Cache-first for static assets (JS, CSS, images, fonts)
+  // ── Strategy 2: Cache-first for static assets ──
   if (
     url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|eot)$/) ||
     url.pathname.startsWith('/assets/')
@@ -117,7 +173,6 @@ self.addEventListener('fetch', (event) => {
 
           return fetch(request)
             .then((networkResponse) => {
-              // Cache successful responses
               if (networkResponse && networkResponse.status === 200) {
                 const responseToCache = networkResponse.clone();
                 caches.open(RUNTIME_CACHE)
@@ -130,6 +185,7 @@ self.addEventListener('fetch', (event) => {
             })
             .catch((error) => {
               console.error('[SW] Fetch failed for asset:', url.pathname, error);
+              // Return a valid Response (not undefined) to avoid TypeError
               return new Response('Offline - Asset not available', { status: 503 });
             });
         })
@@ -137,7 +193,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Strategy 3: Network-first for HTML (always get latest, fallback to cache)
+  // ── Strategy 3: Network-first for HTML pages ──
   if (
     request.headers.get('accept')?.includes('text/html') ||
     url.pathname === '/' ||
@@ -146,7 +202,6 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
-          // Cache successful HTML responses
           if (networkResponse && networkResponse.status === 200) {
             const responseToCache = networkResponse.clone();
             caches.open(RUNTIME_CACHE)
@@ -158,14 +213,18 @@ self.addEventListener('fetch', (event) => {
           console.log('[SW] Network failed, serving cached HTML');
           return caches.match(request)
             .then((cachedResponse) => {
-              return cachedResponse || caches.match('/index.html');
+              // Always return a valid Response — never return undefined
+              return cachedResponse || caches.match('/index.html') || new Response(
+                '<html><body><p>You are offline. Please reconnect.</p></body></html>',
+                { status: 200, headers: { 'Content-Type': 'text/html' } }
+              );
             });
         })
     );
     return;
   }
 
-  // Default: Network-first for everything else
+  // ── Default: Network-first for everything else ──
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -177,17 +236,23 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        return caches.match(request);
+        return caches.match(request)
+          .then((cachedResponse) => {
+            // Always return a valid Response — never return undefined
+            return cachedResponse || new Response('', { status: 503 });
+          });
       })
   );
 });
 
-// Handle messages from clients
+// ============================================================
+// MESSAGES from clients
+// ============================================================
 self.addEventListener('message', (event) => {
   if (event.data === 'skipWaiting') {
     self.skipWaiting();
   }
-  
+
   if (event.data === 'clearCache') {
     event.waitUntil(
       caches.keys().then((cacheNames) => {
@@ -199,13 +264,17 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// Log service worker errors
+// ============================================================
+// ERROR HANDLING
+// ============================================================
 self.addEventListener('error', (event) => {
   console.error('[SW] Error:', event.error);
 });
 
 self.addEventListener('unhandledrejection', (event) => {
   console.error('[SW] Unhandled rejection:', event.reason);
+  // Prevent the error from propagating and crashing the SW
+  event.preventDefault();
 });
 
 console.log('[SW] Service Worker loaded');
