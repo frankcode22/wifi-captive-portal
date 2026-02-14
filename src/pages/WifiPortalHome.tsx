@@ -253,14 +253,33 @@ const WifiPortalHome: React.FC = () => {
   /**
    * Get MAC address from URL parameters - SYNCHRONOUS
    */
-  const getMacAddressSync = (): string => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const mac = urlParams.get('mac') || urlParams.get('id') || '';
+  // const getMacAddressSync = (): string => {
+  //   const urlParams = new URLSearchParams(window.location.search);
+  //   const mac = urlParams.get('mac') || urlParams.get('id') || '';
     
-    console.log('🔍 MAC:', mac);
-    return mac;
-  };
-
+  //   console.log('🔍 MAC:', mac);
+  //   return mac;
+  // };
+/**
+ * Get MAC address from URL parameters - ENHANCED
+ */
+const getMacAddressSync = (): string => {
+  // Try multiple parameter names
+  const urlParams = new URLSearchParams(window.location.search);
+  
+  const mac = 
+    urlParams.get('mac') || 
+    urlParams.get('id') || 
+    urlParams.get('client-mac-address') ||
+    urlParams.get('username') ||
+    '';
+  
+  console.log('🔍 Full URL:', window.location.href);
+  console.log('🔍 Search params:', window.location.search);
+  console.log('🔍 MAC extracted:', mac);
+  
+  return mac;
+};
   /**
    * Check for active session - OPTIMIZED
    */
