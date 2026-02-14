@@ -669,75 +669,110 @@ const attemptAutoLogin = async (transactionId: string) => {
   /**
    * Handle voucher redemption (for cash payments with voucher codes)
    */
-  const handleVoucherRedemption = async () => {
-    const code = voucherCode.trim().toUpperCase();
-    
-    if (!code) {
-      setErrors(prev => ({ ...prev, voucher: 'Please enter a voucher code or M-Pesa transaction code' }));
+/**
+ * Handle voucher redemption (for cash payments with voucher codes)
+ */
+const handleVoucherRedemption = async () => {
+  const code = voucherCode.trim().toUpperCase();
+  
+  if (!code) {
+    setErrors(prev => ({ ...prev, voucher: 'Please enter a voucher code' }));
+    return;
+  }
+
+  try {
+    setPaymentStatus({ status: 'initiating', message: '🎟️ Validating voucher code...' });
+    setErrors(prev => ({ ...prev, voucher: undefined }));
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎟️ FRONTEND: Redeeming voucher');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('Voucher Code:', code);
+    console.log('MAC Address:', macAddress);
+
+    const response = await fetch(`${API_BASE_URL}/voucher/redeem`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        voucherCode: code,
+        macAddress
+      })
+    });
+
+    const responseData = await response.json();
+    console.log('Voucher Response:', responseData);
+
+    // Handle different response statuses
+    if (response.status === 202) {
+      // Voucher not synced yet
+      setPaymentStatus({
+        status: 'syncing',
+        message: `⏳ ${responseData.error || 'Voucher is being activated...'}`
+      });
+      
+      // Retry after delay
+      setTimeout(() => handleVoucherRedemption(), 5000);
       return;
     }
 
-    try {
-      setPaymentStatus({ status: 'initiating', message: '🎟️ Validating code...' });
-      setErrors(prev => ({ ...prev, voucher: undefined }));
-
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('🎟️ FRONTEND: Redeeming voucher/code');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('Code:', code);
-      console.log('MAC Address:', macAddress);
-
-      const response = await fetch(`${API_BASE_URL}/voucher/redeem`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          voucherCode: code,
-          macAddress
-        })
-      });
-
-      const responseData = await response.json();
-      console.log('Voucher Response:', responseData);
-
-      if (responseData.success) {
-        setPaymentStatus({
-          status: 'success',
-          message: `✅ Code activated! You're now connected.`,
-          sessionId: responseData.data?.sessionId
-        });
-
-        // Try auto-login if we have credentials
-        if (responseData.data?.voucherCode) {
-          await loginToMikroTik({
-            username: responseData.data.voucherCode,
-            password: responseData.data.voucherCode,
-            voucherCode: responseData.data.voucherCode,
-            profile: responseData.data.profile || 'default',
-            duration: responseData.data.duration || '1:00:00',
-            expiryDate: responseData.data.expiryDate || new Date().toISOString()
-          });
-        }
-
-        // Refresh active session
-        await checkActiveSession();
-      } else {
-        throw new Error(responseData.error || 'Invalid or expired code');
-      }
-    } catch (error: any) {
-      console.error('❌ Voucher redemption error:', error);
-      const errorMessage = error.message || 'Failed to redeem code';
-      
-      setPaymentStatus({
-        status: 'failed',
-        message: `❌ ${errorMessage}`
-      });
-      
-      setErrors(prev => ({ ...prev, voucher: errorMessage }));
+    if (response.status === 409) {
+      // Already used by another device
+      throw new Error(responseData.error || 'Voucher already used by another device');
     }
-  };
+
+    if (response.status === 410) {
+      // Expired
+      throw new Error(responseData.error || 'Voucher has expired');
+    }
+
+    if (!response.ok || !responseData.success) {
+      throw new Error(responseData.error || 'Invalid voucher code');
+    }
+
+    // Success!
+    console.log('✅ Voucher redeemed successfully');
+    
+    setPaymentStatus({
+      status: 'syncing',
+      message: '✅ Voucher activated! Logging you in...'
+    });
+
+    // Auto-login with voucher credentials
+    if (responseData.data?.voucherCode) {
+      await loginToMikroTik({
+        username: responseData.data.voucherCode,
+        password: responseData.data.voucherCode,
+        voucherCode: responseData.data.voucherCode,
+        profile: responseData.data.profile || 'default',
+        duration: responseData.data.duration || '1:00:00',
+        expiryDate: responseData.data.expiryDate || new Date().toISOString()
+      });
+    } else {
+      // Fallback if no auto-login data
+      setPaymentStatus({
+        status: 'success',
+        message: `✅ Voucher activated! Code: ${code}`
+      });
+    }
+
+    // Refresh active session
+    await checkActiveSession();
+
+  } catch (error: any) {
+    console.error('❌ Voucher redemption error:', error);
+    const errorMessage = error.message || 'Failed to redeem voucher';
+    
+    setPaymentStatus({
+      status: 'failed',
+      message: `❌ ${errorMessage}`
+    });
+    
+    setErrors(prev => ({ ...prev, voucher: errorMessage }));
+  }
+};
 
   /**
    * Initiate M-Pesa payment
