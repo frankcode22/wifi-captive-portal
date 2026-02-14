@@ -1,28 +1,35 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, CreditCard, ArrowRight, X, Laptop, Shield, Ticket } from 'lucide-react';
 
-const API_BASE_URL = (() => {
-  const host = window.location.hostname;
-  
-  // Local development
-  if (host === 'localhost' || host === '127.0.0.1') {
-    return 'http://localhost:3000/api';
-  }
-  
-  // Vercel production - use dedicated backend subdomain
-  if (host === 'backend.ashvillecomsolutions.co.ke') {
-    return 'https://backend.ashvillecomsolutions.co.ke/api';
-  }
-  
-  // Vercel preview deployments
-  if (host.includes('.vercel.app')) {
-    return 'https://backend.ashvillecomsolutions.co.ke/api';
-  }
-  
-  // Fallback
-  return 'https://backend.ashvillecomsolutions.co.ke/api';
-})();
+// ============================================
+// CONFIGURATION
+// ============================================
 
+//const API_BASE_URL =  'http://localhost:3000/api';
+// const API_BASE_URL =  'http://192.168.91.195:3000/api';
+
+
+
+
+const getApiBaseUrl = () => {
+  const host = window.location.hostname;
+  const port = 3000;
+  
+  // Check if running locally
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return `http://localhost:${port}/api`;
+  }
+  
+  // Check if it's the dev subdomain
+  if (host.includes('dev.') || host.includes('development.')) {
+    return 'https://backend.ashvillecomsolutions.co.ke/api'; // or use a dev backend if you have one
+  }
+  
+  // Production on cPanel
+  return 'https://backend.ashvillecomsolutions.co.ke/api';
+};
+
+const API_BASE_URL=getApiBaseUrl()
 // Types
 interface Package {
   packageId: string;
