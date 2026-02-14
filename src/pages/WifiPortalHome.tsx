@@ -502,87 +502,122 @@ const WifiPortalHome: React.FC = () => {
   /**
    * Auto-login to MikroTik hotspot
    */
-  const attemptAutoLogin = async (transactionId: string) => {
-    console.log('🔐 Starting auto-login process...');
-    
-    setPaymentStatus({
-      status: 'syncing',
-      message: '🔄 Syncing voucher to router...'
-    });
+ /**
+ * Auto-login to MikroTik hotspot
+ */
+const attemptAutoLogin = async (transactionId: string) => {
+  console.log('🔐 Starting auto-login process...');
+  
+  setPaymentStatus({
+    status: 'syncing',
+    message: '🔄 Syncing voucher to router...'
+  });
 
-    let attempts = 0;
-    const maxAttempts = 12; // Try for 1 minute (5s intervals)
+  let attempts = 0;
+  const maxAttempts = 12; // Try for 1 minute (5s intervals)
+  
+  if (autoLoginIntervalRef.current) {
+    clearInterval(autoLoginIntervalRef.current);
+    autoLoginIntervalRef.current = null;
+  }
+
+  autoLoginIntervalRef.current = setInterval(async () => {
+    attempts++;
+    setAutoLoginAttempts(attempts);
     
-    if (autoLoginIntervalRef.current) {
-      clearInterval(autoLoginIntervalRef.current);
+    console.log(`🔐 Auto-login attempt ${attempts}/${maxAttempts}`);
+
+    // Check if max attempts reached FIRST
+    if (attempts > maxAttempts) {
+      console.error('❌ Auto-login max attempts reached');
+      
+      // Stop polling
+      if (autoLoginIntervalRef.current) {
+        clearInterval(autoLoginIntervalRef.current);
+        autoLoginIntervalRef.current = null;
+      }
+
+      setPaymentStatus({
+        status: 'success',
+        message: '✅ Payment successful! Your voucher is being synced. Please check your internet connection in a moment.'
+      });
+      return;
     }
 
-    autoLoginIntervalRef.current = setInterval(async () => {
-      attempts++;
-      setAutoLoginAttempts(attempts);
+    try {
+      const response = await fetch(`${API_BASE_URL}/payment/auto-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          macAddress,
+          transactionId 
+        })
+      });
+
+      const data = await response.json();
       
-      console.log(`🔐 Auto-login attempt ${attempts}/${maxAttempts}`);
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/payment/auto-login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            macAddress,
-            transactionId 
-          })
-        });
-
-        const data = await response.json();
+      if (data.success && data.data) {
+        console.log('✅ Auto-login credentials received:', data.data);
         
-        if (data.success && data.data) {
-          console.log('✅ Auto-login credentials received:', data.data);
-          
-          // Stop polling
-          if (autoLoginIntervalRef.current) {
-            clearInterval(autoLoginIntervalRef.current);
-            autoLoginIntervalRef.current = null;
-          }
-
-          // Login to MikroTik
-          await loginToMikroTik(data.data);
-          return;
-          
-        } else if (response.status === 202) {
-          // Voucher still syncing
-          console.log('⏳ Voucher syncing... retrying...');
-          setPaymentStatus({
-            status: 'syncing',
-            message: `⏳ Syncing voucher to router... (${attempts}/${maxAttempts})`
-          });
-          
-        } else {
-          console.error('❌ Auto-login failed:', data.error);
-          
-          if (attempts >= maxAttempts) {
-            throw new Error('Voucher sync timeout');
-          }
+        // Stop polling
+        if (autoLoginIntervalRef.current) {
+          clearInterval(autoLoginIntervalRef.current);
+          autoLoginIntervalRef.current = null;
         }
+
+        // Login to MikroTik
+        await loginToMikroTik(data.data);
+        return;
         
-      } catch (error: any) {
-        console.error('❌ Auto-login request error:', error);
+      } else if (response.status === 202) {
+        // Voucher still syncing
+        console.log('⏳ Voucher syncing... retrying...');
+        setPaymentStatus({
+          status: 'syncing',
+          message: `⏳ Syncing voucher to router... (${attempts}/${maxAttempts})`
+        });
         
+      } else {
+        console.error('❌ Auto-login failed:', data.error);
+        
+        // On last attempt, show error
         if (attempts >= maxAttempts) {
-          // Stop polling
           if (autoLoginIntervalRef.current) {
             clearInterval(autoLoginIntervalRef.current);
             autoLoginIntervalRef.current = null;
           }
 
           setPaymentStatus({
-            status: 'success',
-            message: '✅ Payment successful! Redirecting to internet...'
+            status: 'failed',
+            message: `❌ Router not responding. Error: ${data.error || 'Sync timeout'}. Please contact support.`
           });
         }
       }
-    }, 5000) as any;
-  };
+      
+    } catch (error: any) {
+      console.error('❌ Auto-login request error:', error);
+      
+      // On last attempt, show error
+      if (attempts >= maxAttempts) {
+        if (autoLoginIntervalRef.current) {
+          clearInterval(autoLoginIntervalRef.current);
+          autoLoginIntervalRef.current = null;
+        }
 
+        setPaymentStatus({
+          status: 'failed',
+          message: '❌ Unable to connect to router. Please contact support or try manual login with your voucher code.'
+        });
+      } else {
+        // Update status with attempt count
+        setPaymentStatus({
+          status: 'syncing',
+          message: `⏳ Router connection issue, retrying... (${attempts}/${maxAttempts})`
+        });
+      }
+    }
+  }, 5000) as any;
+};
   /**
    * Login to MikroTik hotspot
    */
