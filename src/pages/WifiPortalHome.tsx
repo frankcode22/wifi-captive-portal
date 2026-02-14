@@ -139,6 +139,15 @@ PackageCard.displayName = 'PackageCard';
 
 const WifiPortalHome: React.FC = () => {
   // State Management - Optimized initialization
+
+   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    console.log('=== DEBUG INFO ===');
+    console.log('All URL Params:', Object.fromEntries(urlParams));
+    console.log('MAC (raw):', urlParams.get('mac'));
+    console.log('MAC (decoded):', decodeURIComponent(urlParams.get('mac') || ''));
+  }, []);
+  
   const [packages, setPackages] = useState<Package[]>(() => {
     // Try to get cached packages from sessionStorage
     try {
