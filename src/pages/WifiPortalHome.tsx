@@ -173,7 +173,6 @@ const WifiPortalHome: React.FC = () => {
   const [activeSession, setActiveSession] = useState<SessionData | null>(null);
   const [redirectCountdown, setRedirectCountdown] = useState(5);
   const [autoLoginAttempts, setAutoLoginAttempts] = useState(0);
-  const [voucherInputLabel, setVoucherInputLabel] = useState('Voucher Code or M-Pesa Code');
 
   const pollingIntervalRef = useRef<number | null>(null);
   const redirectTimerRef = useRef<number | null>(null);
@@ -610,7 +609,7 @@ const WifiPortalHome: React.FC = () => {
       console.log('🔐 Login URL:', loginUrl.href);
 
       // Submit login
-      const response = await fetch(loginUrl.href, {
+      await fetch(loginUrl.href, {
         method: 'GET',
         mode: 'no-cors' // MikroTik hotspot might not support CORS
       });
@@ -903,7 +902,7 @@ const WifiPortalHome: React.FC = () => {
           return;
         }
 
-        const { paymentStatus: localStatus, mikrotikStatus, mpesaStatus } = statusResult.data;
+        const { paymentStatus: localStatus, mpesaStatus } = statusResult.data;
 
         const code = mpesaStatus?.ResultCode != null 
           ? String(mpesaStatus.ResultCode).trim() 
@@ -1280,7 +1279,7 @@ const WifiPortalHome: React.FC = () => {
               </div>
             )}
 
-            {/* Syncing State (NEW) */}
+            {/* Syncing State */}
             {paymentStatus.status === 'syncing' && (
               <div className="text-center">
                 <div className="mb-6 inline-flex items-center justify-center w-20 h-20 bg-purple-100 rounded-full">
@@ -1471,7 +1470,7 @@ const WifiPortalHome: React.FC = () => {
 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {voucherInputLabel}
+                    Voucher Code or M-Pesa Code
                   </label>
                   <div className="relative">
                     <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
