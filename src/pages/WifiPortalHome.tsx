@@ -1,21 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, CreditCard, ArrowRight, X, Laptop, Shield, Ticket } from 'lucide-react';
 
-
-const getApiBaseUrl = () => {
-  // In production, this should match your backend server IP
+const API_BASE_URL = (() => {
   const host = window.location.hostname;
-  const port = 3000; // Your backend port
   
-  // If on localhost, use localhost, otherwise use the host IP
+  // Local development
   if (host === 'localhost' || host === '127.0.0.1') {
-    return `http://localhost:${port}/api`;
+    return 'http://localhost:3000/api';
   }
   
-  return `http://${host}:${port}/api`;
-};
-
-const API_BASE_URL = getApiBaseUrl();
+  // Vercel production - use dedicated backend subdomain
+  if (host === 'backend.ashvillecomsolutions.co.ke') {
+    return 'https://backend.ashvillecomsolutions.co.ke/api';
+  }
+  
+  // Vercel preview deployments
+  if (host.includes('.vercel.app')) {
+    return 'https://backend.ashvillecomsolutions.co.ke/api';
+  }
+  
+  // Fallback
+  return 'https://backend.ashvillecomsolutions.co.ke/api';
+})();
 
 // Types
 interface Package {
