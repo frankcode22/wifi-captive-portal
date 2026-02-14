@@ -264,15 +264,24 @@ const WifiPortalHome: React.FC = () => {
  * Get MAC address from URL parameters - ENHANCED
  */
 const getMacAddressSync = (): string => {
-  // Try multiple parameter names
   const urlParams = new URLSearchParams(window.location.search);
   
-  const mac = 
+  // Try multiple parameter names
+  let mac = 
     urlParams.get('mac') || 
     urlParams.get('id') || 
     urlParams.get('client-mac-address') ||
     urlParams.get('username') ||
     '';
+  
+  // Clean up if MikroTik variable wasn't replaced
+  if (mac.startsWith('$(') && mac.endsWith(')')) {
+    console.warn('⚠️ MikroTik variable not replaced:', mac);
+    mac = ''; // Empty if variable wasn't replaced
+  }
+  
+  // Decode URL encoding
+  mac = decodeURIComponent(mac);
   
   console.log('🔍 Full URL:', window.location.href);
   console.log('🔍 Search params:', window.location.search);
@@ -280,6 +289,7 @@ const getMacAddressSync = (): string => {
   
   return mac;
 };
+
   /**
    * Check for active session - OPTIMIZED
    */

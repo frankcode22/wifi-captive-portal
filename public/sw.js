@@ -1,6 +1,6 @@
-// Service Worker for WiFi Portal - v4 - MAC Address Preservation Fix
-const CACHE_NAME = 'wifi-portal-v4';
-const RUNTIME_CACHE = 'wifi-portal-runtime-v4';
+// Service Worker for WiFi Portal - v5 - Handle MikroTik Login Flow
+const CACHE_NAME = 'wifi-portal-v5';
+const RUNTIME_CACHE = 'wifi-portal-runtime-v5';
 
 const STATIC_ASSETS = [
   '/',
@@ -11,9 +11,6 @@ const STATIC_ASSETS = [
 // HOTSPOT DETECTION HELPERS
 // ============================================================
 
-/**
- * Returns true ONLY for explicit MikroTik hotspot login paths.
- */
 function isHotspotURL(url) {
   const hotspotPaths = ['/login', '/logout', '/status'];
   const isHotspotPath = hotspotPaths.includes(url.pathname);
@@ -24,14 +21,12 @@ function isHotspotURL(url) {
     url.searchParams.has('link-logout') ||
     url.searchParams.has('mac') ||
     url.searchParams.has('id') ||
+    url.searchParams.has('username') ||
     url.searchParams.has('client-mac-address')
   );
   return isHotspotPath || hasHotspotParam;
 }
 
-/**
- * Returns true for OS captive portal probe requests.
- */
 function isCaptiveProbe(url) {
   const probeHosts = [
     'msftconnecttest.com',
@@ -49,7 +44,7 @@ function isCaptiveProbe(url) {
 // INSTALL
 // ============================================================
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing v4...');
+  console.log('[SW] Installing v5...');
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(STATIC_ASSETS))
@@ -62,7 +57,7 @@ self.addEventListener('install', (event) => {
 // ACTIVATE
 // ============================================================
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating v4...');
+  console.log('[SW] Activating v5...');
   event.waitUntil(
     caches.keys()
       .then((names) => Promise.all(
@@ -84,66 +79,91 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET
   if (request.method !== 'GET') return;
-
-  // Skip non-http
   if (!url.protocol.startsWith('http')) return;
 
-  // Log all requests with query params for debugging
+  // Log all requests with params
   if (url.search) {
     console.log('[SW] Request with params:', url.pathname + url.search);
   }
 
-  // 1. Hotspot login/redirect URLs - PRESERVE QUERY PARAMS
+  // 1. Hotspot URLs - Try network, fallback to cached index
   if (isHotspotURL(url)) {
     console.log('[SW] Hotspot URL detected:', url.pathname + url.search);
+    
     event.respondWith(
       fetch(request)
-        .catch(() => {
-          console.log('[SW] Network blocked, serving index.html WITH preserved params');
-          // ✅ KEY FIX: Preserve query parameters in the fallback
+        .then(response => {
+          console.log('[SW] Network response received:', response.status);
+          return response;
+        })
+        .catch(error => {
+          console.log('[SW] Network blocked, serving index.html:', error.message);
+          
+          // Try to extract MAC from referrer or use placeholder
           return caches.match('/index.html')
             .then(cached => {
               if (cached) {
-                // Clone the response and modify it to preserve params
                 return cached.clone();
               }
-              // Fallback HTML that preserves query params
+              
+              // Fallback HTML
               return new Response(
                 `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Loading WiFi Portal...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WiFi Portal Loading...</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-    .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; 
-                border-radius: 50%; width: 40px; height: 40px; 
-                animation: spin 1s linear infinite; margin: 20px auto; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif; 
+      text-align: center; 
+      padding: 50px 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .container { max-width: 500px; margin: 0 auto; background: white; 
+                 color: #333; padding: 40px; border-radius: 20px; 
+                 box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; 
+                border-radius: 50%; width: 50px; height: 50px; 
+                animation: spin 1s linear infinite; margin: 30px auto; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .info { background: #f0f4ff; padding: 15px; border-radius: 10px; 
+            margin: 20px 0; font-size: 14px; text-align: left; }
+    .info strong { color: #667eea; }
   </style>
 </head>
 <body>
-  <h2>Loading WiFi Portal...</h2>
-  <div class="spinner"></div>
-  <p id="status">Initializing...</p>
+  <div class="container">
+    <h2>🌐 Loading WiFi Portal</h2>
+    <div class="spinner"></div>
+    <p>Please wait while we set up your connection...</p>
+    <div class="info">
+      <strong>Connection Details:</strong><br>
+      <span id="details">Detecting device...</span>
+    </div>
+  </div>
   <script>
-    console.log('🔍 [SW Fallback] Current URL:', window.location.href);
-    console.log('🔍 [SW Fallback] Search params:', window.location.search);
+    console.log('🔍 [Fallback] URL:', window.location.href);
+    console.log('🔍 [Fallback] Params:', window.location.search);
     
-    // Extract MAC address from URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const mac = urlParams.get('mac') || urlParams.get('id') || urlParams.get('client-mac-address') || 'Not found';
-    console.log('🔍 [SW Fallback] MAC Address:', mac);
+    const params = new URLSearchParams(window.location.search);
+    const mac = params.get('mac') || params.get('id') || params.get('username') || 'Detecting...';
+    const dst = params.get('dst') || params.get('link-orig') || 'Unknown';
     
-    document.getElementById('status').textContent = 'MAC: ' + mac;
+    document.getElementById('details').innerHTML = 
+      'MAC: ' + mac + '<br>' +
+      'Redirect: ' + (dst.length > 50 ? dst.substring(0, 50) + '...' : dst);
     
-    // Reload after 1.5 seconds to allow SW to activate
+    console.log('🔍 [Fallback] MAC:', mac);
+    
+    // Reload after brief delay to let SW activate
     setTimeout(() => {
-      console.log('🔄 [SW Fallback] Reloading with preserved params...');
+      console.log('🔄 [Fallback] Reloading...');
       window.location.reload();
-    }, 1500);
+    }, 2000);
   </script>
 </body>
 </html>`,
@@ -161,26 +181,42 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. OS captive portal probes - never intercept
+  // 2. Captive portal probes
   if (isCaptiveProbe(url)) {
-    console.log('[SW] Captive probe, bypassing SW:', url.hostname);
+    console.log('[SW] Captive probe, bypassing:', url.hostname);
     event.respondWith(
       fetch(request).catch(() => new Response('', { status: 503 }))
     );
     return;
   }
 
-  // 3. API calls - network only, never cache
+  // 3. API calls - CRITICAL: Check if backend is reachable
   if (url.pathname.startsWith('/api/')) {
-    console.log('[SW] API call, bypassing cache:', url.pathname);
+    console.log('[SW] API call to:', url.href);
+    
     event.respondWith(
-      fetch(request).catch((error) => {
-        console.error('[SW] API call failed:', error);
-        return new Response(
-          JSON.stringify({ success: false, error: 'Network error - check API connection' }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        );
-      })
+      fetch(request)
+        .then(response => {
+          console.log('[SW] API response:', response.status, url.pathname);
+          return response;
+        })
+        .catch(error => {
+          console.error('[SW] API call failed:', error);
+          console.error('[SW] Failed URL:', url.href);
+          
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Cannot connect to backend server',
+              details: error.message,
+              url: url.href
+            }),
+            { 
+              status: 503, 
+              headers: { 'Content-Type': 'application/json' } 
+            }
+          );
+        })
     );
     return;
   }
@@ -196,7 +232,6 @@ self.addEventListener('fetch', (event) => {
           console.log('[SW] Cache hit:', url.pathname);
           return cached;
         }
-        console.log('[SW] Cache miss, fetching:', url.pathname);
         return fetch(request).then(response => {
           if (response && response.status === 200) {
             const clone = response.clone();
@@ -209,7 +244,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 5. HTML pages - network first, cached fallback
+  // 5. HTML pages
   if (
     request.headers.get('accept')?.includes('text/html') ||
     url.pathname === '/' ||
@@ -223,11 +258,10 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       }).catch(() => {
-        console.log('[SW] HTML fetch failed, serving cache');
         return caches.match(request)
           .then(cached => cached || caches.match('/index.html'))
           .then(cached => cached || new Response(
-            '<html><body><p>You are offline.</p></body></html>',
+            '<html><body><p>Offline</p></body></html>',
             { status: 200, headers: { 'Content-Type': 'text/html' } }
           ));
       })
@@ -235,7 +269,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 6. Default - network first
+  // 6. Default
   event.respondWith(
     fetch(request).then(response => {
       if (response && response.status === 200) {
@@ -253,20 +287,10 @@ self.addEventListener('fetch', (event) => {
 // MESSAGES
 // ============================================================
 self.addEventListener('message', (event) => {
-  console.log('[SW] Message received:', event.data);
-  
-  if (event.data === 'skipWaiting') {
-    console.log('[SW] Skipping waiting...');
-    self.skipWaiting();
-  }
-  
+  if (event.data === 'skipWaiting') self.skipWaiting();
   if (event.data === 'clearCache') {
-    console.log('[SW] Clearing all caches...');
     event.waitUntil(
-      caches.keys().then(names => {
-        console.log('[SW] Deleting caches:', names);
-        return Promise.all(names.map(n => caches.delete(n)));
-      })
+      caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
     );
   }
 });
@@ -283,4 +307,4 @@ self.addEventListener('unhandledrejection', (event) => {
   event.preventDefault();
 });
 
-console.log('[SW] Service Worker v4 loaded - MAC address preservation enabled');
+console.log('[SW] Service Worker v5 loaded - Enhanced error logging');
