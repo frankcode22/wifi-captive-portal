@@ -5,6 +5,12 @@ import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, Cred
 // CONFIGURATION
 // ============================================
 
+//const API_BASE_URL =  'http://localhost:3000/api';
+// const API_BASE_URL =  'http://192.168.91.195:3000/api';
+
+
+
+
 const getApiBaseUrl = () => {
   const host = window.location.hostname;
   const port = 3000;
@@ -16,15 +22,14 @@ const getApiBaseUrl = () => {
   
   // Check if it's the dev subdomain
   if (host.includes('dev.') || host.includes('development.')) {
-    return 'https://backend.ashvillecomsolutions.co.ke/api';
+    return 'https://backend.ashvillecomsolutions.co.ke/api'; // or use a dev backend if you have one
   }
   
-  // Production
+  // Production on cPanel
   return 'https://backend.ashvillecomsolutions.co.ke/api';
 };
 
-const API_BASE_URL = getApiBaseUrl();
-
+const API_BASE_URL=getApiBaseUrl()
 // Types
 interface Package {
   packageId: string;
@@ -43,14 +48,13 @@ interface Package {
   isActive?: boolean;
 }
 
-type PaymentStatusType = 'idle' | 'initiating' | 'waiting' | 'success' | 'failed' | 'cancelled' | 'timeout' | 'error' | 'syncing';
+type PaymentStatusType = 'idle' | 'initiating' | 'waiting' | 'success' | 'failed' | 'cancelled' | 'timeout' | 'error';
 
 interface PaymentStatus {
   status: PaymentStatusType;
   message: string;
   checkoutRequestID?: string;
   sessionId?: string;
-  transactionId?: string;
 }
 
 interface ApiResponse<T> {
@@ -71,14 +75,6 @@ interface SessionData {
   mikrotikActive?: boolean;
 }
 
-interface AutoLoginData {
-  username: string;
-  password: string;
-  voucherCode: string;
-  profile: string;
-  duration: string;
-  expiryDate: string;
-}
 
 // Package Card Component - Memoized for performance
 const PackageCard = memo(({ 
@@ -140,14 +136,25 @@ const PackageCard = memo(({
 
 PackageCard.displayName = 'PackageCard';
 
+
 const WifiPortalHome: React.FC = () => {
-  // State Management
+  // State Management - Optimized initialization
+
+   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    console.log('=== DEBUG INFO ===');
+    console.log('All URL Params:', Object.fromEntries(urlParams));
+    console.log('MAC (raw):', urlParams.get('mac'));
+    console.log('MAC (decoded):', decodeURIComponent(urlParams.get('mac') || ''));
+  }, []);
+  
   const [packages, setPackages] = useState<Package[]>(() => {
+    // Try to get cached packages from sessionStorage
     try {
       const cached = sessionStorage.getItem('wifi_packages');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.timestamp && Date.now() - parsed.timestamp < 300000) {
+        if (parsed.timestamp && Date.now() - parsed.timestamp < 300000) { // 5 minutes cache
           return parsed.data;
         }
       }
@@ -172,32 +179,17 @@ const WifiPortalHome: React.FC = () => {
   const [isVoucherMode, setIsVoucherMode] = useState(false);
   const [activeSession, setActiveSession] = useState<SessionData | null>(null);
   const [redirectCountdown, setRedirectCountdown] = useState(5);
-  const [autoLoginAttempts, setAutoLoginAttempts] = useState(0);
-  const [voucherInputLabel, setVoucherInputLabel] = useState('Voucher Code or M-Pesa Code');
 
   const pollingIntervalRef = useRef<number | null>(null);
   const redirectTimerRef = useRef<number | null>(null);
   const fetchControllerRef = useRef<AbortController | null>(null);
-  const autoLoginIntervalRef = useRef<number | null>(null);
 
-  // Get URL parameters for MikroTik integration
-  const urlParams = new URLSearchParams(window.location.search);
-  const linkLogin = urlParams.get('link-login') || urlParams.get('link-login-only') || '';
-  const linkOrig = urlParams.get('link-orig') || urlParams.get('dst') || 'http://www.google.com';
-
-  useEffect(() => {
-    console.log('=== DEBUG INFO ===');
-    console.log('Full URL:', window.location.href);
-    console.log('All URL Params:', Object.fromEntries(urlParams));
-    console.log('Link-Login:', linkLogin);
-    console.log('Link-Orig:', linkOrig);
-  }, []);
-
-  // Fetch packages and check for active session on mount
+  // Fetch packages and check for active session on mount - OPTIMIZED
   useEffect(() => {
     const mac = getMacAddressSync();
     setMacAddress(mac);
     
+    // Start both requests in parallel immediately
     Promise.all([
       fetchPackages(),
       checkActiveSession(mac)
@@ -206,6 +198,7 @@ const WifiPortalHome: React.FC = () => {
 
   // Preload critical resources
   useEffect(() => {
+    // Preconnect to API
     const link = document.createElement('link');
     link.rel = 'preconnect';
     link.href = API_BASE_URL;
@@ -237,9 +230,8 @@ const WifiPortalHome: React.FC = () => {
       redirectTimerRef.current = setInterval(() => {
         setRedirectCountdown(prev => {
           if (prev <= 1) {
-            // Redirect to original destination or Google
-            const destination = decodeURIComponent(linkOrig);
-            window.location.href = destination;
+            // Redirect to YouTube
+            window.location.href = 'https://www.youtube.com';
             return 0;
           }
           return prev - 1;
@@ -253,7 +245,7 @@ const WifiPortalHome: React.FC = () => {
         redirectTimerRef.current = null;
       }
     };
-  }, [paymentStatus.status, linkOrig]);
+  }, [paymentStatus.status]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -264,49 +256,62 @@ const WifiPortalHome: React.FC = () => {
       if (redirectTimerRef.current) {
         clearInterval(redirectTimerRef.current);
       }
-      if (autoLoginIntervalRef.current) {
-        clearInterval(autoLoginIntervalRef.current);
-      }
     };
   }, []);
 
   /**
-   * Get MAC address from URL parameters - ENHANCED
+   * Get MAC address from URL parameters - SYNCHRONOUS
    */
-  const getMacAddressSync = (): string => {
-    let mac = 
-      urlParams.get('mac') || 
-      urlParams.get('id') || 
-      urlParams.get('client-mac-address') ||
-      urlParams.get('username') ||
-      '';
+  // const getMacAddressSync = (): string => {
+  //   const urlParams = new URLSearchParams(window.location.search);
+  //   const mac = urlParams.get('mac') || urlParams.get('id') || '';
     
-    // Clean up if MikroTik variable wasn't replaced
-    if (mac.startsWith('$(') && mac.endsWith(')')) {
-      console.warn('⚠️ MikroTik variable not replaced:', mac);
-      mac = '';
-    }
-    
-    // Decode URL encoding
-    mac = decodeURIComponent(mac);
-    
-    console.log('🔍 MAC extracted:', mac);
-    
-    return mac;
-  };
+  //   console.log('🔍 MAC:', mac);
+  //   return mac;
+  // };
+/**
+ * Get MAC address from URL parameters - ENHANCED
+ */
+const getMacAddressSync = (): string => {
+  const urlParams = new URLSearchParams(window.location.search);
+  
+  // Try multiple parameter names
+  let mac = 
+    urlParams.get('mac') || 
+    urlParams.get('id') || 
+    urlParams.get('client-mac-address') ||
+    urlParams.get('username') ||
+    '';
+  
+  // Clean up if MikroTik variable wasn't replaced
+  if (mac.startsWith('$(') && mac.endsWith(')')) {
+    console.warn('⚠️ MikroTik variable not replaced:', mac);
+    mac = ''; // Empty if variable wasn't replaced
+  }
+  
+  // Decode URL encoding
+  mac = decodeURIComponent(mac);
+  
+  console.log('🔍 Full URL:', window.location.href);
+  console.log('🔍 Search params:', window.location.search);
+  console.log('🔍 MAC extracted:', mac);
+  
+  return mac;
+};
 
   /**
-   * Check for active session
+   * Check for active session - OPTIMIZED
    */
   const checkActiveSession = async (mac?: string) => {
     const macToUse = mac || macAddress;
     if (!macToUse) return;
 
+    // Check cache first
     try {
       const cached = sessionStorage.getItem(`session_${macToUse}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.timestamp && Date.now() - parsed.timestamp < 30000) {
+        if (parsed.timestamp && Date.now() - parsed.timestamp < 30000) { // 30 seconds cache
           setActiveSession(parsed.data);
           return;
         }
@@ -317,7 +322,7 @@ const WifiPortalHome: React.FC = () => {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
 
       const response = await fetch(`${API_BASE_URL}/sessions/active/${macToUse}`, {
         signal: controller.signal
@@ -328,6 +333,7 @@ const WifiPortalHome: React.FC = () => {
 
       if (result.success && result.data) {
         setActiveSession(result.data);
+        // Cache the result
         sessionStorage.setItem(`session_${macToUse}`, JSON.stringify({
           data: result.data,
           timestamp: Date.now()
@@ -344,9 +350,10 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * Fetch available packages from API
+   * Fetch available packages from API - OPTIMIZED
    */
   const fetchPackages = async () => {
+    // Return immediately if we have cached packages
     if (packages.length > 0) {
       setLoading(false);
       return;
@@ -355,12 +362,13 @@ const WifiPortalHome: React.FC = () => {
     try {
       setLoading(true);
 
+      // Abort previous fetch if still running
       if (fetchControllerRef.current) {
         fetchControllerRef.current.abort();
       }
 
       fetchControllerRef.current = new AbortController();
-      const timeoutId = setTimeout(() => fetchControllerRef.current?.abort(), 5000);
+      const timeoutId = setTimeout(() => fetchControllerRef.current?.abort(), 5000); // 5 second timeout
       
       const response = await fetch(`${API_BASE_URL}/packages`, {
         signal: fetchControllerRef.current.signal,
@@ -388,6 +396,7 @@ const WifiPortalHome: React.FC = () => {
         
         setPackages(mappedPackages);
 
+        // Cache packages
         try {
           sessionStorage.setItem('wifi_packages', JSON.stringify({
             data: mappedPackages,
@@ -492,7 +501,7 @@ const WifiPortalHome: React.FC = () => {
   };
 
   /**
-   * Handle package selection
+   * Handle package selection - OPTIMIZED
    */
   const handlePackageSelect = useCallback((pkg: Package) => {
     setSelectedPackage(pkg);
@@ -501,156 +510,22 @@ const WifiPortalHome: React.FC = () => {
   }, []);
 
   /**
-   * Auto-login to MikroTik hotspot
-   */
-  const attemptAutoLogin = async (transactionId: string) => {
-    console.log('🔐 Starting auto-login process...');
-    
-    setPaymentStatus({
-      status: 'syncing',
-      message: '🔄 Syncing voucher to router...'
-    });
-
-    let attempts = 0;
-    const maxAttempts = 12; // Try for 1 minute (5s intervals)
-    
-    if (autoLoginIntervalRef.current) {
-      clearInterval(autoLoginIntervalRef.current);
-    }
-
-    autoLoginIntervalRef.current = setInterval(async () => {
-      attempts++;
-      setAutoLoginAttempts(attempts);
-      
-      console.log(`🔐 Auto-login attempt ${attempts}/${maxAttempts}`);
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/payment/auto-login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            macAddress,
-            transactionId 
-          })
-        });
-
-        const data = await response.json();
-        
-        if (data.success && data.data) {
-          console.log('✅ Auto-login credentials received:', data.data);
-          
-          // Stop polling
-          if (autoLoginIntervalRef.current) {
-            clearInterval(autoLoginIntervalRef.current);
-            autoLoginIntervalRef.current = null;
-          }
-
-          // Login to MikroTik
-          await loginToMikroTik(data.data);
-          return;
-          
-        } else if (response.status === 202) {
-          // Voucher still syncing
-          console.log('⏳ Voucher syncing... retrying...');
-          setPaymentStatus({
-            status: 'syncing',
-            message: `⏳ Syncing voucher to router... (${attempts}/${maxAttempts})`
-          });
-          
-        } else {
-          console.error('❌ Auto-login failed:', data.error);
-          
-          if (attempts >= maxAttempts) {
-            throw new Error('Voucher sync timeout');
-          }
-        }
-        
-      } catch (error: any) {
-        console.error('❌ Auto-login request error:', error);
-        
-        if (attempts >= maxAttempts) {
-          // Stop polling
-          if (autoLoginIntervalRef.current) {
-            clearInterval(autoLoginIntervalRef.current);
-            autoLoginIntervalRef.current = null;
-          }
-
-          setPaymentStatus({
-            status: 'success',
-            message: '✅ Payment successful! Redirecting to internet...'
-          });
-        }
-      }
-    }, 5000) as any;
-  };
-
-  /**
-   * Login to MikroTik hotspot
-   */
-  const loginToMikroTik = async (credentials: AutoLoginData) => {
-    try {
-      console.log('🔐 Logging in to MikroTik hotspot...');
-      console.log('Link-Login URL:', linkLogin);
-      console.log('Credentials:', credentials);
-
-      if (!linkLogin) {
-        console.error('❌ No link-login URL found');
-        setPaymentStatus({
-          status: 'success',
-          message: `✅ Payment successful! Your voucher code is: ${credentials.voucherCode}`
-        });
-        return;
-      }
-
-      // Build login URL
-      const loginUrl = new URL(linkLogin);
-      loginUrl.searchParams.set('username', credentials.username);
-      loginUrl.searchParams.set('password', credentials.password);
-
-      console.log('🔐 Login URL:', loginUrl.href);
-
-      // Submit login
-      const response = await fetch(loginUrl.href, {
-        method: 'GET',
-        mode: 'no-cors' // MikroTik hotspot might not support CORS
-      });
-
-      console.log('✅ Login submitted to MikroTik');
-
-      setPaymentStatus({
-        status: 'success',
-        message: '✅ Login successful! You are now connected to the internet.'
-      });
-
-    } catch (error) {
-      console.error('❌ MikroTik login error:', error);
-      
-      setPaymentStatus({
-        status: 'success',
-        message: `✅ Payment successful! Your voucher code is: ${credentials.voucherCode}`
-      });
-    }
-  };
-
-  /**
-   * Handle voucher redemption (for cash payments with voucher codes)
+   * Handle voucher redemption
    */
   const handleVoucherRedemption = async () => {
-    const code = voucherCode.trim().toUpperCase();
-    
-    if (!code) {
-      setErrors(prev => ({ ...prev, voucher: 'Please enter a voucher code or M-Pesa transaction code' }));
+    if (!voucherCode.trim()) {
+      setErrors(prev => ({ ...prev, voucher: 'Please enter a voucher code' }));
       return;
     }
 
     try {
-      setPaymentStatus({ status: 'initiating', message: '🎟️ Validating code...' });
+      setPaymentStatus({ status: 'initiating', message: '🎟️ Validating voucher...' });
       setErrors(prev => ({ ...prev, voucher: undefined }));
 
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('🎟️ FRONTEND: Redeeming voucher/code');
+      console.log('🎟️ FRONTEND: Redeeming voucher');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('Code:', code);
+      console.log('Voucher Code:', voucherCode);
       console.log('MAC Address:', macAddress);
 
       const response = await fetch(`${API_BASE_URL}/voucher/redeem`, {
@@ -660,7 +535,7 @@ const WifiPortalHome: React.FC = () => {
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          voucherCode: code,
+          voucherCode: voucherCode.trim().toUpperCase(),
           macAddress
         })
       });
@@ -671,30 +546,18 @@ const WifiPortalHome: React.FC = () => {
       if (responseData.success) {
         setPaymentStatus({
           status: 'success',
-          message: `✅ Code activated! You're now connected.`,
+          message: `✅ Voucher activated! You're now connected.`,
           sessionId: responseData.data?.sessionId
         });
-
-        // Try auto-login if we have credentials
-        if (responseData.data?.voucherCode) {
-          await loginToMikroTik({
-            username: responseData.data.voucherCode,
-            password: responseData.data.voucherCode,
-            voucherCode: responseData.data.voucherCode,
-            profile: responseData.data.profile || 'default',
-            duration: responseData.data.duration || '1:00:00',
-            expiryDate: responseData.data.expiryDate || new Date().toISOString()
-          });
-        }
 
         // Refresh active session
         await checkActiveSession();
       } else {
-        throw new Error(responseData.error || 'Invalid or expired code');
+        throw new Error(responseData.error || 'Invalid or expired voucher');
       }
     } catch (error: any) {
       console.error('❌ Voucher redemption error:', error);
-      const errorMessage = error.message || 'Failed to redeem code';
+      const errorMessage = error.message || 'Failed to redeem voucher';
       
       setPaymentStatus({
         status: 'failed',
@@ -756,6 +619,7 @@ const WifiPortalHome: React.FC = () => {
         })
       });
 
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('📨 FRONTEND: Received response from backend');
       console.log('Status:', response.status);
 
@@ -777,6 +641,7 @@ const WifiPortalHome: React.FC = () => {
         throw new Error(`Please wait ${retryAfter} seconds before trying again`);
       }
 
+      // Parse response data
       const checkoutRequestID = 
         responseData?.data?.checkoutRequestId ||
         responseData?.data?.CheckoutRequestID ||
@@ -810,8 +675,7 @@ const WifiPortalHome: React.FC = () => {
           status: 'waiting',
           message: customerMessage,
           checkoutRequestID,
-          sessionId,
-          transactionId: sessionId
+          sessionId
         });
 
         pollPaymentStatus(sessionId || checkoutRequestID);
@@ -827,8 +691,7 @@ const WifiPortalHome: React.FC = () => {
           status: 'waiting',
           message: '⏳ Previous payment request detected. Checking status...',
           checkoutRequestID,
-          sessionId,
-          transactionId: sessionId
+          sessionId
         });
         pollPaymentStatus(sessionId || checkoutRequestID);
         return;
@@ -878,6 +741,8 @@ const WifiPortalHome: React.FC = () => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🔄 STARTING PAYMENT STATUS POLLING');
     console.log('Identifier:', identifier);
+    console.log('Poll Interval:', pollIntervalMs + 'ms');
+    console.log('Max Polls:', maxPolls);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     pollingIntervalRef.current = setInterval(async () => {
@@ -915,6 +780,7 @@ const WifiPortalHome: React.FC = () => {
           resultCode: code,
           resultDesc: desc,
           localStatus,
+          mikrotikStatus,
           receipt: mpesaStatus?.MpesaReceiptNumber || 'N/A'
         });
 
@@ -931,13 +797,9 @@ const WifiPortalHome: React.FC = () => {
           console.log('M-Pesa Receipt:', mpesaStatus?.MpesaReceiptNumber);
 
           setPaymentStatus({
-            status: 'syncing',
-            message: '✅ Payment successful! Syncing to router...',
-            transactionId: identifier
+            status: 'success',
+            message: `✅ Payment successful! Receipt: ${mpesaStatus?.MpesaReceiptNumber || 'Processing...'}`,
           });
-
-          // Start auto-login process
-          await attemptAutoLogin(identifier);
 
           // Refresh active session
           await checkActiveSession();
@@ -1004,8 +866,10 @@ const WifiPortalHome: React.FC = () => {
           userMessage = `📱 Check your phone for M-Pesa prompt... (${timeDisplay})`;
         } else if (currentPollCount <= 36) {
           userMessage = `⏳ Waiting for you to enter your M-Pesa PIN... (${timeDisplay})`;
-        } else {
+        } else if (currentPollCount <= 72) {
           userMessage = `⏳ Still waiting for payment confirmation... (${timeDisplay})`;
+        } else {
+          userMessage = `⏳ Taking longer than usual, but we're still waiting... (${timeDisplay})`;
         }
 
         setPaymentStatus(prev => ({
@@ -1031,6 +895,15 @@ const WifiPortalHome: React.FC = () => {
         }
       } catch (error) {
         console.error('❌ Status polling error on poll #' + currentPollCount + ':', error);
+
+        if (currentPollCount < maxPolls - 10) {
+          console.log('⚠️ Transient error, will retry...');
+          setPaymentStatus(prev => ({
+            ...prev,
+            message: `⚠️ Connection issue, retrying... (${currentPollCount}/${maxPolls})`
+          }));
+          return;
+        }
 
         if (currentPollCount >= maxPolls) {
           isProcessing = true;
@@ -1097,10 +970,6 @@ const WifiPortalHome: React.FC = () => {
       clearInterval(redirectTimerRef.current);
       redirectTimerRef.current = null;
     }
-    if (autoLoginIntervalRef.current) {
-      clearInterval(autoLoginIntervalRef.current);
-      autoLoginIntervalRef.current = null;
-    }
     setSelectedPackage(null);
     setPhoneNumber('');
     setVoucherCode('');
@@ -1110,11 +979,10 @@ const WifiPortalHome: React.FC = () => {
     setTimeElapsed(0);
     setIsVoucherMode(false);
     setRedirectCountdown(5);
-    setAutoLoginAttempts(0);
   };
 
   /**
-   * Get icon component
+   * Get icon component - MEMOIZED
    */
   const getIcon = useCallback((iconName: string) => {
     switch (iconName) {
@@ -1126,7 +994,7 @@ const WifiPortalHome: React.FC = () => {
   }, []);
 
   /**
-   * Format duration
+   * Format duration - MEMOIZED
    */
   const formatDuration = useCallback((seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -1137,7 +1005,7 @@ const WifiPortalHome: React.FC = () => {
   }, []);
 
   /**
-   * Format elapsed time
+   * Format elapsed time - MEMOIZED
    */
   const formatElapsedTime = useCallback((seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -1145,7 +1013,7 @@ const WifiPortalHome: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
-  // Loading state
+  // Optimized loading state with skeleton
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -1208,7 +1076,7 @@ const WifiPortalHome: React.FC = () => {
       </header>
 
       {/* Payment Status Modal */}
-      {['initiating', 'waiting', 'syncing', 'success', 'failed', 'cancelled', 'timeout', 'error'].includes(paymentStatus.status) && (
+      {['initiating', 'waiting', 'success', 'failed', 'cancelled', 'timeout', 'error'].includes(paymentStatus.status) && (
         <div className="fixed inset-0 bg-black/40 bg-opacity-50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in duration-300">
             {/* Initiating State */}
@@ -1239,6 +1107,7 @@ const WifiPortalHome: React.FC = () => {
                   <strong className="text-gray-900">{phoneNumber}</strong>
                 </p>
 
+                {/* Transaction Progress */}
                 <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -1248,6 +1117,7 @@ const WifiPortalHome: React.FC = () => {
                     <span className="text-lg font-bold text-gray-900">{formatElapsedTime(timeElapsed)}</span>
                   </div>
                   
+                  {/* Progress Steps */}
                   <div className="space-y-2 text-left">
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle2 className="w-4 h-4 text-green-600" />
@@ -1266,6 +1136,7 @@ const WifiPortalHome: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Instructions */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                   <p className="text-sm text-blue-900 font-medium mb-1">📱 Enter your M-Pesa PIN</p>
                   <p className="text-xs text-blue-700">Complete the payment on your phone to continue</p>
@@ -1280,54 +1151,13 @@ const WifiPortalHome: React.FC = () => {
               </div>
             )}
 
-            {/* Syncing State (NEW) */}
-            {paymentStatus.status === 'syncing' && (
-              <div className="text-center">
-                <div className="mb-6 inline-flex items-center justify-center w-20 h-20 bg-purple-100 rounded-full">
-                  <Loader2 className="w-12 h-12 text-purple-600 animate-spin" />
-                </div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-3">Syncing Voucher...</h2>
-                <p className="text-gray-600 text-base mb-6">
-                  {paymentStatus.message}
-                </p>
-
-                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-4 mb-6">
-                  <div className="space-y-2 text-left">
-                    <div className="flex items-center gap-2 text-sm">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      <span className="text-gray-700">Payment confirmed</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      <span className="text-gray-700">Voucher created</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
-                      <span className="text-gray-700">Syncing to router...</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-3 border-t border-purple-200">
-                    <p className="text-xs text-gray-600">
-                      Attempt {autoLoginAttempts}/12 • This may take up to 1 minute
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-blue-900 font-medium mb-1">⏳ Please wait...</p>
-                  <p className="text-xs text-blue-700">We're activating your internet access</p>
-                </div>
-              </div>
-            )}
-
             {/* Success State */}
             {paymentStatus.status === 'success' && (
               <div className="text-center">
                 <div className="mb-6 inline-flex items-center justify-center w-20 h-20 bg-green-100 rounded-full animate-in zoom-in duration-500">
                   <CheckCircle2 className="w-12 h-12 text-green-600" />
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-3">Connected! 🎉</h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">Payment Successful! 🎉</h2>
                 <p className="text-gray-600 text-base mb-6">
                   {paymentStatus.message}
                 </p>
@@ -1357,13 +1187,14 @@ const WifiPortalHome: React.FC = () => {
                   </div>
                 )}
 
+                {/* Redirect Notification */}
                 <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
                   <div className="flex items-center justify-center gap-2 mb-2">
                     <Wifi className="w-5 h-5 text-blue-600 animate-pulse" />
-                    <p className="text-sm font-bold text-blue-900">Redirecting to Internet</p>
+                    <p className="text-sm font-bold text-blue-900">Testing Internet Connection</p>
                   </div>
                   <p className="text-xs text-blue-700 mb-3">
-                    Taking you online in {redirectCountdown} seconds...
+                    Redirecting to YouTube to verify your WiFi connection...
                   </p>
                   <div className="flex items-center justify-center gap-2">
                     <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
@@ -1372,10 +1203,10 @@ const WifiPortalHome: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => window.location.href = decodeURIComponent(linkOrig)}
+                  onClick={() => window.location.href = 'https://www.youtube.com'}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold hover:from-green-700 hover:to-emerald-700 transition-all duration-300 shadow-lg mb-2"
                 >
-                  Go Online Now
+                  Go to YouTube Now
                 </button>
                 
                 <button
@@ -1437,7 +1268,7 @@ const WifiPortalHome: React.FC = () => {
       )}
 
       <main className="max-w-6xl mx-auto px-4 py-6">
-        {!['success', 'waiting', 'syncing'].includes(paymentStatus.status) && (
+        {!['success', 'waiting'].includes(paymentStatus.status) && (
           <>
             {/* Voucher Option Toggle */}
             {!selectedPackage && !isVoucherMode && (
@@ -1447,7 +1278,7 @@ const WifiPortalHome: React.FC = () => {
                   className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-xl border-2 border-gray-300 hover:border-blue-500 transition-all text-sm font-medium text-gray-700 hover:text-blue-600"
                 >
                   <Ticket className="w-4 h-4" />
-                  Have a voucher or paid cash? Click here
+                  Have a voucher code? Click here
                 </button>
               </div>
             )}
@@ -1456,7 +1287,7 @@ const WifiPortalHome: React.FC = () => {
             {isVoucherMode && (
               <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md mx-auto mb-6 animate-in fade-in duration-500">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-gray-900">Enter Code</h2>
+                  <h2 className="text-xl font-bold text-gray-900">Redeem Voucher</h2>
                   <button
                     onClick={() => {
                       setIsVoucherMode(false);
@@ -1471,7 +1302,7 @@ const WifiPortalHome: React.FC = () => {
 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {voucherInputLabel}
+                    Voucher Code
                   </label>
                   <div className="relative">
                     <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -1479,7 +1310,7 @@ const WifiPortalHome: React.FC = () => {
                       type="text"
                       value={voucherCode}
                       onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-                      placeholder="Enter code (e.g., ABCD-1234 or SKHU3XY2XY)"
+                      placeholder="XXXX-XXXX-XXXX"
                       className={`w-full pl-11 pr-4 py-3 border-2 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
                         errors.voucher ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
                       }`}
@@ -1491,9 +1322,6 @@ const WifiPortalHome: React.FC = () => {
                       {errors.voucher}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-gray-600">
-                    Enter your voucher code or M-Pesa transaction code
-                  </p>
                 </div>
 
                 <button
@@ -1509,7 +1337,7 @@ const WifiPortalHome: React.FC = () => {
                   ) : (
                     <>
                       <Ticket className="w-5 h-5" />
-                      Activate Code
+                      Redeem Voucher
                     </>
                   )}
                 </button>
@@ -1579,7 +1407,7 @@ const WifiPortalHome: React.FC = () => {
                           <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
                         </div>
                         <p className="text-xs font-mono text-blue-700">
-                          MAC: {macAddress || 'Detecting...'}
+                          MAC: {macAddress}
                         </p>
                       </div>
                     </div>
@@ -1689,7 +1517,7 @@ const WifiPortalHome: React.FC = () => {
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="text-xs text-gray-600">
-              <span className="font-medium">Device MAC:</span> {macAddress || 'Detecting...'}
+              <span className="font-medium">Device MAC:</span> {macAddress}
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-600">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
