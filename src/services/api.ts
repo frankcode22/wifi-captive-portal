@@ -47,7 +47,7 @@ const API_BASE_URL = (() => {
   }
   
   // Vercel production - use dedicated backend subdomain
-  if (host === 'captive.ashvillecomsolutions.co.ke') {
+  if (host === 'backend.ashvillecomsolutions.co.ke') {
     return 'https://backend.ashvillecomsolutions.co.ke/api';
   }
   
