@@ -3,7 +3,7 @@ import { Wifi, Clock, Zap, Star, CheckCircle2, Loader2, AlertCircle, Phone, Cred
 
 //const getApiBaseUrl = () => 'http://192.168.91.86:3000/api';
 
- const getApiBaseUrl = () => 'http://backend.ashvillecomsolutions.co.ke/api';
+ const getApiBaseUrl = () => 'https://backend.ashvillecomsolutions.co.ke/api';
 
 const API_BASE_URL = getApiBaseUrl();
 
