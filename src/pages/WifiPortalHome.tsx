@@ -1147,15 +1147,15 @@ const WifiPortalHome: React.FC = () => {
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
                     <div className="grid grid-cols-3 gap-2">
-                      <button type="button" onClick={() => setPaymentMethod('mpesa')} className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-200 ${paymentMethod === 'mpesa' ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-200 bg-white hover:border-green-300 hover:bg-green-50/50'}`}>
+                      {/* <button type="button" onClick={() => setPaymentMethod('mpesa')} className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-200 ${paymentMethod === 'mpesa' ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-200 bg-white hover:border-green-300 hover:bg-green-50/50'}`}>
                         {paymentMethod === 'mpesa' && <span className="absolute top-1.5 right-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-green-600" /></span>}
                         <div className="w-9 h-9 bg-green-600 rounded-lg flex items-center justify-center"><Phone className="w-4 h-4 text-white" /></div>
                         <div className="text-center"><div className="font-bold text-gray-900 text-xs">M-Pesa</div><div className="text-gray-500" style={{ fontSize: '10px' }}>STK Push</div></div>
-                      </button>
+                      </button> */}
                       <button type="button" onClick={() => setPaymentMethod('moneyunify')} className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-200 ${paymentMethod === 'moneyunify' ? 'border-orange-500 bg-orange-50 shadow-md' : 'border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-50/50'}`}>
                         {paymentMethod === 'moneyunify' && <span className="absolute top-1.5 right-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-600" /></span>}
                         <div className="w-9 h-9 bg-orange-500 rounded-lg flex items-center justify-center"><MoneyUnifyLogo /></div>
-                        <div className="text-center"><div className="font-bold text-gray-900 text-xs">MoneyUnify</div><div className="text-gray-500" style={{ fontSize: '10px' }}>Mobile Money</div></div>
+                        <div className="text-center"><div className="font-bold text-gray-900 text-xs">Pay Now</div><div className="text-gray-500" style={{ fontSize: '10px' }}>Mobile Money</div></div>
                       </button>
                       <button type="button" onClick={() => setPaymentMethod('paypal')} className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-200 ${paymentMethod === 'paypal' ? 'border-blue-500 bg-blue-50 shadow-md' : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'}`}>
                         {paymentMethod === 'paypal' && <span className="absolute top-1.5 right-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-blue-600" /></span>}
